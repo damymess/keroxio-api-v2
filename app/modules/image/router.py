@@ -1,160 +1,316 @@
-"""Image router - Background removal via AutoBG.ai and image processing"""
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+"""
+API endpoints pour le traitement d'images Keroxio.
+
+Endpoints:
+- POST /remove-bg : Supprime l'arrière-plan
+- POST /remove-bg/upload : Supprime l'arrière-plan (upload)
+- POST /apply-background : Applique un fond pro
+- POST /process : Pipeline complet (remove-bg + background)
+- GET /backgrounds : Liste les fonds disponibles
+- POST /info : Métadonnées image
+- POST /resize : Redimensionner
+- GET /health : Status du service
+"""
+
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from typing import Optional
-import io
 import base64
-import httpx
-import os
+import uuid
+import io
 
-router = APIRouter()
+from .schemas import (
+    RemoveBackgroundRequest,
+    RemoveBackgroundResponse,
+    ApplyBackgroundRequest,
+    ApplyBackgroundResponse,
+    BackgroundType,
+    BackgroundListResponse,
+    BackgroundInfo,
+)
+from .service import get_image_service
+from .backgrounds import list_backgrounds, BACKGROUNDS
 
-# Config
-AUTOBG_API_KEY = os.getenv("AUTOBG_API_KEY", "")
-AUTOBG_API_URL = os.getenv("AUTOBG_API_URL", "https://api.autobg.ai/v1")
+router = APIRouter(prefix="/image", tags=["Image Processing"])
 
-# === Schemas ===
-class RemoveBgRequest(BaseModel):
-    image_base64: str
-    output_format: str = "png"
 
-class RemoveBgResponse(BaseModel):
-    success: bool
-    image_base64: Optional[str] = None
-    image_url: Optional[str] = None
-    format: str = "png"
-    error: Optional[str] = None
-
-class ImageInfoResponse(BaseModel):
-    width: int
-    height: int
-    format: str
-    size_bytes: int
-    has_alpha: bool
-
-# === Helpers ===
-async def remove_background_autobg(image_bytes: bytes) -> bytes:
-    """Remove background using AutoBG.ai API"""
-    if not AUTOBG_API_KEY:
-        raise HTTPException(
-            status_code=503, 
-            detail="AutoBG API key not configured"
-        )
+@router.get("/health")
+async def health():
+    """Status du module image."""
+    from app.core.config import settings
+    autobg_configured = bool(getattr(settings, 'AUTOBG_API_KEY', None))
     
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        try:
-            # Encode image as base64
-            image_b64 = base64.b64encode(image_bytes).decode()
-            
-            response = await client.post(
-                f"{AUTOBG_API_URL}/remove-background",
-                headers={
-                    "Authorization": f"Bearer {AUTOBG_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                json={"image": image_b64}
-            )
-            
-            if response.status_code != 200:
-                raise HTTPException(
-                    status_code=response.status_code,
-                    detail=f"AutoBG API error: {response.text}"
-                )
-            
-            result = response.json()
-            
-            # Return the processed image
-            if "image" in result:
-                return base64.b64decode(result["image"])
-            elif "url" in result:
-                # Download from URL
-                img_response = await client.get(result["url"])
-                return img_response.content
-            else:
-                raise HTTPException(status_code=500, detail="Invalid AutoBG response")
-                
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=503, detail=f"AutoBG API unreachable: {str(e)}")
-
-def get_image_info(image_bytes: bytes) -> dict:
-    """Get image metadata using PIL"""
+    pillow_ok = False
     try:
         from PIL import Image
+        pillow_ok = True
+    except ImportError:
+        pass
+    
+    return {
+        "status": "healthy",
+        "module": "image",
+        "autobg_configured": autobg_configured,
+        "pillow_available": pillow_ok,
+        "backgrounds_available": len(BACKGROUNDS),
+    }
+
+
+@router.get("/backgrounds", response_model=BackgroundListResponse)
+async def get_backgrounds():
+    """Liste tous les arrière-plans professionnels disponibles."""
+    backgrounds = list_backgrounds()
+    return BackgroundListResponse(
+        backgrounds=[
+            BackgroundInfo(
+                id=bg["id"],
+                name=bg["name"],
+                category=bg["category"],
+                preview_url=bg.get("preview_url", ""),
+                description=bg.get("description"),
+            )
+            for bg in backgrounds
+        ],
+        total=len(backgrounds),
+    )
+
+
+@router.get("/backgrounds/{category}")
+async def get_backgrounds_by_category(category: str):
+    """Liste les arrière-plans d'une catégorie (showroom, studio, garage, outdoor)."""
+    backgrounds = [
+        bg for bg in list_backgrounds() 
+        if bg["category"] == category
+    ]
+    return {
+        "category": category,
+        "backgrounds": backgrounds,
+        "total": len(backgrounds),
+    }
+
+
+@router.post("/remove-bg", response_model=RemoveBackgroundResponse)
+async def remove_background(request: RemoveBackgroundRequest):
+    """
+    Supprime l'arrière-plan d'une image.
+    
+    Utilise AutoBG.ai pour un résultat optimisé véhicules.
+    Retourne une image PNG avec fond transparent.
+    """
+    service = get_image_service()
+    
+    try:
+        result = await service.remove_background(request.image_url)
+        return RemoveBackgroundResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/remove-bg/upload", response_model=RemoveBackgroundResponse)
+async def remove_background_upload(file: UploadFile = File(...)):
+    """
+    Supprime l'arrière-plan d'une image uploadée.
+    
+    Accepte: JPEG, PNG, WebP
+    Retourne: URL de l'image transparente
+    """
+    from app.core.config import settings
+    from pathlib import Path
+    
+    # Valider le type de fichier
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
+    
+    # Sauvegarder temporairement
+    content = await file.read()
+    
+    if len(content) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(status_code=413, detail="Image trop grande (max 10MB)")
+    
+    filename = f"upload_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+    
+    storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
+    uploads_path = storage_path / "uploads"
+    uploads_path.mkdir(parents=True, exist_ok=True)
+    
+    file_path = uploads_path / filename
+    file_path.write_bytes(content)
+    
+    storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
+    image_url = f"{storage_url}/uploads/{filename}"
+    
+    # Traiter
+    service = get_image_service()
+    try:
+        result = await service.remove_background(image_url)
+        return RemoveBackgroundResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/apply-background", response_model=ApplyBackgroundResponse)
+async def apply_background(request: ApplyBackgroundRequest):
+    """
+    Applique un arrière-plan professionnel à une image.
+    
+    Si image_url n'a pas de fond transparent, il sera d'abord supprimé.
+    
+    Options:
+    - background_type: Type de fond (showroom_indoor, studio_white, etc.)
+    - scale: Échelle de la voiture (0.5 à 2.0)
+    - position_x/y: Position (0.0 à 1.0)
+    - add_shadow: Ajouter une ombre réaliste
+    - add_reflection: Ajouter un reflet (style showroom luxe)
+    """
+    service = get_image_service()
+    
+    try:
+        # Utiliser l'image transparente fournie ou traiter l'image source
+        if request.transparent_url:
+            transparent_url = request.transparent_url
+        else:
+            # Remove background first
+            result_bg = await service.remove_background(request.image_url)
+            transparent_url = result_bg["processed_url"]
+        
+        result = await service.apply_background(
+            transparent_url=transparent_url,
+            background_type=request.background_type.value,
+            custom_background_url=request.custom_background_url,
+            scale=request.scale,
+            position_x=request.position_x,
+            position_y=request.position_y,
+            add_shadow=request.add_shadow,
+            add_reflection=request.add_reflection,
+        )
+        
+        return ApplyBackgroundResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/process", response_model=ApplyBackgroundResponse)
+async def process_complete(
+    image_url: str = Form(...),
+    background_type: BackgroundType = Form(BackgroundType.SHOWROOM_INDOOR),
+    scale: float = Form(1.0),
+    position_x: float = Form(0.5),
+    position_y: float = Form(0.7),
+    add_shadow: bool = Form(True),
+    add_reflection: bool = Form(False),
+):
+    """
+    Pipeline complet: Remove background + Apply background.
+    
+    Une seule requête pour obtenir le résultat final.
+    """
+    service = get_image_service()
+    
+    try:
+        result = await service.process_complete(
+            image_url=image_url,
+            background_type=background_type.value,
+            scale=scale,
+            position_x=position_x,
+            position_y=position_y,
+            add_shadow=add_shadow,
+            add_reflection=add_reflection,
+        )
+        return ApplyBackgroundResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/process/upload", response_model=ApplyBackgroundResponse)
+async def process_complete_upload(
+    file: UploadFile = File(...),
+    background_type: BackgroundType = Form(BackgroundType.SHOWROOM_INDOOR),
+    scale: float = Form(1.0),
+    position_x: float = Form(0.5),
+    position_y: float = Form(0.7),
+    add_shadow: bool = Form(True),
+    add_reflection: bool = Form(False),
+):
+    """
+    Pipeline complet avec upload direct.
+    
+    Upload une image, supprime le fond, applique le background choisi.
+    """
+    from app.core.config import settings
+    from pathlib import Path
+    
+    # Valider le type
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
+    
+    # Sauvegarder
+    content = await file.read()
+    
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image trop grande (max 10MB)")
+    
+    filename = f"upload_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+    
+    storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
+    uploads_path = storage_path / "uploads"
+    uploads_path.mkdir(parents=True, exist_ok=True)
+    
+    file_path = uploads_path / filename
+    file_path.write_bytes(content)
+    
+    storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
+    image_url = f"{storage_url}/uploads/{filename}"
+    
+    # Traiter
+    service = get_image_service()
+    try:
+        result = await service.process_complete(
+            image_url=image_url,
+            background_type=background_type.value,
+            scale=scale,
+            position_x=position_x,
+            position_y=position_y,
+            add_shadow=add_shadow,
+            add_reflection=add_reflection,
+        )
+        return ApplyBackgroundResponse(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Utilitaires ===
+
+@router.post("/info")
+async def get_info(file: UploadFile = File(...)):
+    """Récupère les métadonnées d'une image."""
+    try:
+        from PIL import Image
+        
+        image_bytes = await file.read()
         img = Image.open(io.BytesIO(image_bytes))
+        
         return {
             "width": img.width,
             "height": img.height,
             "format": img.format or "unknown",
+            "mode": img.mode,
             "size_bytes": len(image_bytes),
-            "has_alpha": img.mode in ("RGBA", "LA", "PA")
+            "has_alpha": img.mode in ("RGBA", "LA", "PA"),
         }
     except ImportError:
-        raise HTTPException(status_code=503, detail="Pillow not installed")
+        raise HTTPException(status_code=503, detail="Pillow non installé")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid image: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Image invalide: {str(e)}")
 
-# === Endpoints ===
-@router.post("/remove-bg", response_model=RemoveBgResponse)
-async def remove_background_base64(request: RemoveBgRequest):
-    """Remove background from base64 encoded image via AutoBG.ai"""
-    try:
-        # Decode base64
-        if "," in request.image_base64:
-            image_bytes = base64.b64decode(request.image_base64.split(",")[1])
-        else:
-            image_bytes = base64.b64decode(request.image_base64)
-        
-        # Remove background
-        result_bytes = await remove_background_autobg(image_bytes)
-        
-        # Encode result
-        result_base64 = base64.b64encode(result_bytes).decode()
-        
-        return RemoveBgResponse(
-            success=True,
-            image_base64=result_base64,
-            format=request.output_format
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        return RemoveBgResponse(success=False, error=str(e))
-
-@router.post("/remove-bg/upload")
-async def remove_background_upload(
-    file: UploadFile = File(...),
-    output_format: str = Query("png", regex="^(png|webp)$")
-):
-    """Remove background from uploaded image file via AutoBG.ai"""
-    image_bytes = await file.read()
-    
-    if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
-    
-    result_bytes = await remove_background_autobg(image_bytes)
-    
-    return StreamingResponse(
-        io.BytesIO(result_bytes),
-        media_type=f"image/{output_format}",
-        headers={"Content-Disposition": f"attachment; filename=result.{output_format}"}
-    )
-
-@router.post("/info", response_model=ImageInfoResponse)
-async def get_info(file: UploadFile = File(...)):
-    """Get image metadata"""
-    image_bytes = await file.read()
-    info = get_image_info(image_bytes)
-    return ImageInfoResponse(**info)
 
 @router.post("/resize")
 async def resize_image(
     file: UploadFile = File(...),
     width: int = Query(..., ge=1, le=4096),
     height: int = Query(..., ge=1, le=4096),
-    maintain_aspect: bool = Query(True)
+    maintain_aspect: bool = Query(True),
 ):
-    """Resize an image"""
+    """Redimensionne une image."""
     try:
         from PIL import Image
         
@@ -177,21 +333,6 @@ async def resize_image(
             headers={"Content-Disposition": f"attachment; filename=resized.{fmt.lower()}"}
         )
     except ImportError:
-        raise HTTPException(status_code=503, detail="Pillow not installed")
-
-@router.get("/health")
-async def health():
-    """Check if image processing is available"""
-    status = {"autobg": bool(AUTOBG_API_KEY), "pillow": False}
-    
-    try:
-        from PIL import Image
-        status["pillow"] = True
-    except ImportError:
-        pass
-    
-    return {
-        "available": status["pillow"],
-        "autobg_configured": status["autobg"],
-        "dependencies": status
-    }
+        raise HTTPException(status_code=503, detail="Pillow non installé")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur: {str(e)}")

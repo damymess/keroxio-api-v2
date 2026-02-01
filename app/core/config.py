@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     EMAIL_FROM: str = os.getenv("EMAIL_FROM", "noreply@keroxio.fr")
     
+    # AutoBG.ai (Image processing)
+    AUTOBG_API_KEY: str = os.getenv("AUTOBG_API_KEY", "")
+    
+    # Storage
+    STORAGE_PATH: str = os.getenv("STORAGE_PATH", "/app/storage")
+    STORAGE_URL: str = os.getenv("STORAGE_URL", "https://storage.keroxio.fr")
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
