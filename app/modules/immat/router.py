@@ -1,11 +1,16 @@
 """Immat router - Vehicle lookup by registration plate"""
-from fastapi import APIRouter, HTTPException, Path
+from fastapi import APIRouter, HTTPException, Path, UploadFile, File
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 import re
+import os
+
+from .ocr import read_plate_from_image, PlateOCRResult
 
 router = APIRouter()
+
+PLATE_RECOGNIZER_API_KEY = os.getenv("PLATE_RECOGNIZER_API_KEY", "")
 
 # === Schemas ===
 class VehicleInfo(BaseModel):
@@ -100,3 +105,62 @@ async def validate_plate_endpoint(plaque: str):
         return {"valid": True, "normalized": normalized}
     except ValueError:
         return {"valid": False, "normalized": None}
+
+# === OCR Endpoints ===
+@router.post("/ocr", response_model=PlateOCRResult)
+async def ocr_plate(file: UploadFile = File(...)):
+    """
+    Read license plate from uploaded image using OCR.
+    Supports JPEG, PNG images up to 10MB.
+    Returns detected plate number with confidence score.
+    """
+    # Validate file size
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
+    
+    # Call OCR
+    result = await read_plate_from_image(contents)
+    return result
+
+@router.post("/ocr/full", response_model=LookupResponse)
+async def ocr_and_lookup(file: UploadFile = File(...)):
+    """
+    Read license plate from image AND look up vehicle info.
+    Combines OCR + vehicle lookup in one call.
+    """
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image too large (max 10MB)")
+    
+    # OCR first
+    ocr_result = await read_plate_from_image(contents)
+    
+    if not ocr_result.success or not ocr_result.plate:
+        return LookupResponse(
+            success=False,
+            error=ocr_result.error or "No plate detected"
+        )
+    
+    # Validate and lookup
+    try:
+        plaque = validate_plate(ocr_result.plate)
+        vehicle = lookup_vehicle(plaque)
+        return LookupResponse(
+            success=True,
+            vehicle=vehicle,
+            source=f"ocr (confidence: {ocr_result.confidence})"
+        )
+    except ValueError:
+        return LookupResponse(
+            success=False,
+            error=f"Invalid plate format: {ocr_result.plate}"
+        )
+
+@router.get("/ocr/health")
+async def ocr_health():
+    """Check if OCR service is configured"""
+    return {
+        "configured": bool(PLATE_RECOGNIZER_API_KEY),
+        "provider": "Plate Recognizer" if PLATE_RECOGNIZER_API_KEY else None
+    }
