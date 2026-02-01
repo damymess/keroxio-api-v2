@@ -161,7 +161,7 @@ GET  /immat/ocr/health       → Status OCR
 
 ### Phase 5 : FINITIONS 🎨 EN COURS
 - [ ] Brancher dashboard → API vehicle (sauvegarder les véhicules créés)
-- [ ] Download batch des photos traitées
+- [ ] Download/partage photos (save to gallery, share)
 - [ ] Preview photos avant/après
 - [ ] Améliorer UX mobile
 
@@ -241,6 +241,6 @@ GET  /immat/ocr/health       → Status OCR
 **→ Phase 5 : Finitions**
 
 1. [ ] Brancher dashboard → API vehicle (persist les véhicules)
-2. [ ] Download batch des photos traitées (ZIP)
+2. [ ] Download/partage photos (enregistrer galerie, partager)
 3. [ ] Preview photos avant/après
 4. [ ] Tests E2E du flow complet
