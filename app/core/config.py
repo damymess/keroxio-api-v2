@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # AutoBG.ai (Image processing)
     AUTOBG_API_KEY: str = os.getenv("AUTOBG_API_KEY", "")
     
+    # Remove.bg API
+    REMOVEBG_API_KEY: str = os.getenv("REMOVEBG_API_KEY", "")
+    
     # Storage
     STORAGE_PATH: str = os.getenv("STORAGE_PATH", "/app/storage")
     STORAGE_URL: str = os.getenv("STORAGE_URL", "https://storage.keroxio.fr")
