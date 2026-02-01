@@ -160,7 +160,7 @@ GET  /immat/ocr/health       → Status OCR
 - [x] **Module Vehicle** (stockage PostgreSQL)
 
 ### Phase 5 : FINITIONS 🎨 EN COURS
-- [ ] Brancher dashboard → API vehicle (sauvegarder les véhicules créés)
+- [x] Brancher dashboard → API vehicle (sauvegarder les véhicules créés)
 - [ ] Download/partage photos (save to gallery, share)
 - [ ] Preview photos avant/après
 - [ ] Améliorer UX mobile
@@ -207,6 +207,13 @@ GET  /immat/ocr/health       → Status OCR
 
 ## 📝 Changelog
 
+### 2026-02-01 18:10 - Phase 5.1 - Dashboard → API Vehicle 🔗
+- ✅ vehicleApi client (CRUD operations)
+- ✅ NewVehicle sauvegarde à chaque étape
+- ✅ Vehicles page charge depuis l'API
+- ✅ Dashboard affiche les vrais véhicules + stats
+- ✅ Flow complet persisté en PostgreSQL
+
 ### 2026-02-01 18:04 - Phase 4 COMPLÈTE 🎉
 - ✅ **OCR plaque automatique** - Dashboard branché sur /immat/ocr/full
 - ✅ **Masquage plaque** - POST /image/mask-plate (Plate Recognizer + blur Pillow)
@@ -238,9 +245,9 @@ GET  /immat/ocr/health       → Status OCR
 
 ## 🎯 Prochaine Action
 
-**→ Phase 5 : Finitions**
+**→ Phase 5 : Finitions (suite)**
 
-1. [ ] Brancher dashboard → API vehicle (persist les véhicules)
+1. [x] Brancher dashboard → API vehicle ✅
 2. [ ] Download/partage photos (enregistrer galerie, partager)
 3. [ ] Preview photos avant/après
 4. [ ] Tests E2E du flow complet
