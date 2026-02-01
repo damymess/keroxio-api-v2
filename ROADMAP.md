@@ -1,6 +1,6 @@
 # 🚗 KEROXIO - Feuille de Route
 
-> Dernière mise à jour : 2026-02-01 13:25
+> Dernière mise à jour : 2026-02-01 14:10
 
 ---
 
@@ -23,7 +23,7 @@
 
 ---
 
-## 🟢 État Actuel (2026-02-01)
+## 🟢 État Actuel (2026-02-01) - MODULE IMAGE FINALISÉ ✅
 
 ### Architecture consolidée : 16 → 8 services
 
@@ -40,40 +40,26 @@
 
 ---
 
-## 🆕 API v2 - Architecture Unifiée
-
-**URL** : https://api.keroxio.fr
-**Status** : ✅ running:healthy
-**Stack** : FastAPI + PostgreSQL + Redis
-
-### Modules inclus (9) :
-
-| Module | Endpoints | Description |
-|--------|-----------|-------------|
-| auth | `/auth/*` | Register, Login, JWT |
-| billing | `/billing/*` | Stripe Checkout, Plans |
-| subscription | `/subscription/*` | Gestion abos |
-| crm | `/crm/*` | Leads, Contacts, Stats |
-| email | `/email/*` | Emails (Resend) |
-| notification | `/notification/*` | Notifs in-app |
-| pricing | `/pricing/*` | Estimation prix véhicule |
-| immat | `/immat/*` | Validation plaques |
-| **image** | `/image/*` | ✅ **Remove-bg + Backgrounds pro** |
-
----
-
-## 🖼️ Module Image - OPÉRATIONNEL ✅
+## 🖼️ Module Image - TERMINÉ ✅
 
 ### Stack technique
 - **Remove-bg** : remove.bg API (~0.6s, ~0.05€/image)
 - **Composite** : Pillow (Python) (~0.15s)
-- **Total** : ~1s par image
+- **Total** : ~0.7s par image
+
+### Auto-scaling intelligent
+| Orientation | Ratio | Scale |
+|-------------|-------|-------|
+| Vue côté (landscape) | > 1.3 | 45% |
+| Vue face/arrière (portrait) | < 0.8 | 30% hauteur |
+| Vue 3/4 | 0.8-1.3 | **38%** |
 
 ### Endpoints
 
 ```
 GET  /image/health              → Status module
-GET  /image/backgrounds         → Liste les 6 fonds
+GET  /image/backgrounds         → Liste backgrounds
+POST /image/backgrounds         → Upload background
 
 POST /image/remove-bg           → PNG transparent (URL)
 POST /image/remove-bg/upload    → PNG transparent (upload)
@@ -83,41 +69,38 @@ POST /image/process             → Pipeline complet ⚡
 POST /image/process/upload      → Pipeline complet (upload)
 
 GET  /image/files/{filename}    → Télécharger résultat
+GET  /image/backgrounds/{f}     → Servir background
 POST /image/info                → Métadonnées image
 ```
 
-### Backgrounds disponibles (6)
+### Backgrounds disponibles (7 customs)
 
 | ID | Nom | Description |
 |----|-----|-------------|
-| `showroom` | Showroom | Fond showroom moderne bleuté |
-| `studio_white` | Studio Blanc | Fond blanc épuré |
-| `studio_grey` | Studio Gris | Fond gris neutre |
-| `studio_black` | Studio Noir | Fond noir premium |
-| `garage_modern` | Garage Moderne | Sol époxy sombre |
-| `outdoor` | Extérieur | Ciel + asphalte |
+| `showroom_led` | Showroom LED | LED ceiling grid premium |
+| `showroom_blue` | Showroom Blue | LED strips bleus |
+| `neon_cyberpunk` | Cyberpunk | Néon rose/cyan |
+| `garage_concrete` | Garage Béton | Piliers béton |
+| `garage_industrial` | Industriel | Lignes jaunes |
+| `tunnel_led` | Tunnel LED | Tunnel néon |
+| `garage_dark` | Garage Dark | Étagères sombres |
 
 ### Exemple d'utilisation
 
 ```bash
-# Pipeline complet en 1 requête
-curl -X POST https://api.keroxio.fr/image/process \
-  -H "Content-Type: application/json" \
-  -d '{
-    "image_url": "https://...",
-    "background": "studio_black",
-    "position": "center",
-    "scale": 0.85
-  }'
+# Pipeline complet en 1 requête (scale auto à 38%)
+curl -X POST https://api.keroxio.fr/image/process/upload \
+  -F "file=@voiture.jpg" \
+  -F "background=showroom_led"
 
-# Réponse (~1s)
+# Réponse (~0.7s)
 {
   "id": "xxx",
   "status": "completed",
   "transparent_url": "https://api.keroxio.fr/image/files/xxx_transparent.png",
   "final_url": "https://api.keroxio.fr/image/files/xxx_final.jpg",
-  "background": "studio_black",
-  "processing_time": 0.91
+  "background": "showroom_led",
+  "processing_time": 0.72
 }
 ```
 
@@ -141,16 +124,17 @@ curl -X POST https://api.keroxio.fr/image/process \
 ### Phase 3 : MODULE IMAGE ✅ TERMINÉ
 - [x] Intégrer remove.bg API
 - [x] Créer service composite Pillow
-- [x] Générer 6 backgrounds par défaut
-- [x] Endpoint `/image/process` (pipeline complet)
-- [x] Servir les fichiers via `/image/files/`
-- [x] **Résultat : ~1s par image, 0.05€/image**
+- [x] Smart auto-scaling (38% pour vue 3/4)
+- [x] Trim transparent pixels
+- [x] 7 backgrounds custom uploadés
+- [x] Endpoint `/image/process/upload` fonctionnel
+- [x] **Résultat : ~0.7s par image, 0.05€/image**
 
-### Phase 4 : ASSETS & POLISH 🎨 EN COURS
-- [ ] Ajouter des backgrounds photo réels (vrais garages/showrooms)
+### Phase 4 : INTÉGRATION DASHBOARD 🎨 À FAIRE
 - [ ] Intégrer le module image dans le dashboard
+- [ ] UI pour choisir le background
+- [ ] Preview avant validation
 - [ ] Option masquage de plaque
-- [ ] Tests end-to-end du pipeline photo
 
 ### Phase 5 : WORKERS ASYNC 🔄
 - [ ] Redis Queue pour traitement background
@@ -192,19 +176,21 @@ curl -X POST https://api.keroxio.fr/image/process \
 
 ## 📝 Changelog
 
-### 2026-02-01 13:25 - Module Image COMPLET 🖼️ ✅
+### 2026-02-01 14:10 - Module Image FINALISÉ 🖼️ ✅
+- ✅ Smart auto-scaling basé sur orientation voiture
+- ✅ Scale final : **38%** pour vue 3/4
+- ✅ 7 backgrounds custom (showroom_led, neon_cyberpunk, etc.)
+- ✅ Trim transparent pixels
+- ✅ Position voiture en bas (sol)
+- ✅ Performance : **~0.7s** par image
+- ✅ **DOSSIER KEROXIO FERMÉ**
+
+### 2026-02-01 13:25 - Module Image COMPLET 🖼️
 - ✅ Intégration **remove.bg API** (rapide, ~0.6s)
 - ✅ Composite **Pillow** local (~0.15s)
 - ✅ Pipeline complet **~1s** par image
-- ✅ **6 backgrounds** générés automatiquement
+- ✅ 6 backgrounds générés automatiquement
 - ✅ Endpoint `/image/process` fonctionnel
-- ✅ Fichiers servis via `/image/files/`
-- ✅ Coût : **~0.05€/image**
-- ✅ Testé avec succès (Mustang → showroom/studio_black)
-
-### 2026-02-01 12:40 - Début module Image
-- Testé AutoBG.ai (trop lent/complexe)
-- Décision : remove.bg + composite local
 
 ### 2026-02-01 11:00 - Migration Phase 2 complète
 - ✅ Dashboard connecté à api-v2
@@ -220,9 +206,9 @@ curl -X POST https://api.keroxio.fr/image/process \
 
 ## 🎯 Prochaine Action
 
-**→ Phase 4 : Améliorer les backgrounds**
+**→ Phase 4 : Intégration Dashboard**
 
-1. [ ] Trouver/créer des images de fond photo réalistes
-2. [ ] Uploader via `POST /image/backgrounds`
-3. [ ] Intégrer dans le dashboard Keroxio
-4. [ ] Option masquage de plaque d'immatriculation
+1. [ ] Créer UI dans le dashboard pour uploader photo
+2. [ ] Sélecteur de background avec preview
+3. [ ] Affichage résultat avant/après
+4. [ ] Download du résultat final
