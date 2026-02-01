@@ -1,8 +1,8 @@
 """
 Service de traitement d'images pour Keroxio.
 - Suppression arrière-plan via AutoBG.ai
-- Application d'arrière-plans professionnels
-- Ajout d'ombres et reflets
+- Utilisation des backgrounds AutoBG intégrés
+- Fallback: compositing local pour backgrounds custom
 """
 
 import io
@@ -17,6 +17,21 @@ from PIL import Image, ImageDraw, ImageFilter, ImageEnhance
 
 from app.core.config import settings
 from .backgrounds import BACKGROUNDS, get_background
+
+
+# Mapping de nos types vers les backgrounds AutoBG.ai
+AUTOBG_BACKGROUNDS = {
+    "transparent": "transparent",
+    "studio_white": "white",
+    "studio_grey": "grey",
+    "studio_black": "black",
+    # Showrooms AutoBG (IDs à confirmer avec leur API)
+    "showroom_indoor": "showroom-indoor",
+    "showroom_outdoor": "showroom-outdoor",
+    "garage_modern": "garage-modern",
+    "garage_luxury": "garage-luxury",
+    "parking_outdoor": "outdoor",
+}
 
 
 class ImageService:
@@ -40,7 +55,6 @@ class ImageService:
         output = io.BytesIO()
         
         if format.upper() == "JPEG":
-            # Convertir en RGB si nécessaire (JPEG ne supporte pas alpha)
             if image.mode in ('RGBA', 'LA', 'P'):
                 background = Image.new('RGB', image.size, (255, 255, 255))
                 if image.mode == 'P':
@@ -56,31 +70,42 @@ class ImageService:
         output.seek(0)
         filename = f"{uuid.uuid4()}.{ext}"
         
-        # Sauvegarder localement
         processed_path = self.storage_path / "processed"
         processed_path.mkdir(parents=True, exist_ok=True)
         file_path = processed_path / filename
         file_path.write_bytes(output.getvalue())
         
         return f"{self.storage_url}/processed/{filename}"
+    
+    async def _save_bytes(self, image_bytes: bytes, ext: str = "png") -> str:
+        """Sauvegarde des bytes directement."""
+        filename = f"{uuid.uuid4()}.{ext}"
+        processed_path = self.storage_path / "processed"
+        processed_path.mkdir(parents=True, exist_ok=True)
+        file_path = processed_path / filename
+        file_path.write_bytes(image_bytes)
+        return f"{self.storage_url}/processed/{filename}"
 
-    async def remove_background(self, image_url: str) -> Dict[str, Any]:
+    async def _call_autobg(
+        self, 
+        image_bytes: bytes, 
+        background: str = "transparent"
+    ) -> bytes:
         """
-        Supprime l'arrière-plan d'une image via AutoBG.ai.
+        Appelle l'API AutoBG.ai.
+        
+        Args:
+            image_bytes: Image source en bytes
+            background: Type de fond (transparent, white, showroom-indoor, etc.)
         
         Returns:
-            Dict avec id, url de l'image transparente, temps de traitement
+            Image résultat en bytes
         """
-        start = time.time()
-        
         if not self.autobg_api_key:
             raise ValueError("AUTOBG_API_KEY non configurée")
         
-        # Télécharger l'image source
-        image_bytes = await self._download_image(image_url)
         image_b64 = base64.b64encode(image_bytes).decode('utf-8')
         
-        # Appel AutoBG.ai
         headers = {
             "Authorization": self.autobg_api_key,
             "Content-Type": "application/json",
@@ -88,7 +113,7 @@ class ImageService:
         
         payload = {
             "image": image_b64,
-            "background": "transparent",
+            "background": background,
         }
         
         async with httpx.AsyncClient(timeout=60.0) as client:
@@ -102,15 +127,23 @@ class ImageService:
         
         # Récupérer l'image résultat
         if "image" in result:
-            processed_bytes = base64.b64decode(result["image"])
+            return base64.b64decode(result["image"])
         elif "url" in result:
-            processed_bytes = await self._download_image(result["url"])
+            return await self._download_image(result["url"])
         else:
             raise ValueError("Pas d'image dans la réponse AutoBG")
+
+    async def remove_background(self, image_url: str) -> Dict[str, Any]:
+        """
+        Supprime l'arrière-plan d'une image via AutoBG.ai.
+        Retourne une image PNG transparente.
+        """
+        start = time.time()
         
-        # Sauvegarder
-        image = Image.open(io.BytesIO(processed_bytes))
-        processed_url = await self._save_image(image, "PNG")
+        image_bytes = await self._download_image(image_url)
+        result_bytes = await self._call_autobg(image_bytes, "transparent")
+        
+        processed_url = await self._save_bytes(result_bytes, "png")
         
         return {
             "id": str(uuid.uuid4()),
@@ -119,6 +152,146 @@ class ImageService:
             "processed_url": processed_url,
             "processing_time": round(time.time() - start, 2),
         }
+
+    async def apply_background(
+        self,
+        image_url: str,
+        background_type: str = "showroom_indoor",
+        custom_background_url: Optional[str] = None,
+        scale: float = 1.0,
+        position_x: float = 0.5,
+        position_y: float = 0.7,
+        add_shadow: bool = True,
+        add_reflection: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Applique un arrière-plan professionnel.
+        
+        Utilise AutoBG.ai directement si le background est supporté,
+        sinon fait le compositing localement.
+        """
+        start = time.time()
+        
+        image_bytes = await self._download_image(image_url)
+        
+        # Vérifier si AutoBG supporte ce background
+        autobg_bg = AUTOBG_BACKGROUNDS.get(background_type)
+        
+        if autobg_bg and background_type != "custom":
+            # Utiliser AutoBG directement
+            try:
+                result_bytes = await self._call_autobg(image_bytes, autobg_bg)
+                ext = "png" if background_type == "transparent" else "jpg"
+                processed_url = await self._save_bytes(result_bytes, ext)
+                
+                return {
+                    "id": str(uuid.uuid4()),
+                    "status": "completed",
+                    "original_url": image_url,
+                    "background_type": background_type,
+                    "background_source": "autobg",
+                    "processed_url": processed_url,
+                    "processing_time": round(time.time() - start, 2),
+                }
+            except Exception as e:
+                # Fallback vers compositing local si AutoBG échoue
+                print(f"AutoBG background failed, falling back to local: {e}")
+        
+        # Compositing local (pour custom ou fallback)
+        # D'abord obtenir l'image transparente
+        transparent_bytes = await self._call_autobg(image_bytes, "transparent")
+        car_image = Image.open(io.BytesIO(transparent_bytes)).convert('RGBA')
+        
+        # Créer ou charger le background
+        if background_type == "custom" and custom_background_url:
+            bg_bytes = await self._download_image(custom_background_url)
+            background = Image.open(io.BytesIO(bg_bytes)).convert('RGB')
+        else:
+            # Créer un fond par défaut (gradient gris)
+            background = self._create_gradient_background((1920, 1080), ["#909090", "#606060"])
+        
+        # Redimensionner et positionner
+        bg_width, bg_height = background.size
+        car_target_width = int(bg_width * 0.65 * scale)
+        ratio = car_target_width / car_image.width
+        car_image = car_image.resize(
+            (car_target_width, int(car_image.height * ratio)),
+            Image.LANCZOS
+        )
+        
+        car_x = int((bg_width - car_image.width) * position_x)
+        car_y = int((bg_height - car_image.height) * position_y)
+        
+        # Ajouter ombre si demandé
+        if add_shadow:
+            shadow = self._add_shadow(car_image)
+            background.paste(shadow, (car_x, car_y), shadow)
+        
+        # Coller la voiture
+        background.paste(car_image, (car_x, car_y), car_image)
+        
+        processed_url = await self._save_image(background, "JPEG")
+        
+        return {
+            "id": str(uuid.uuid4()),
+            "status": "completed",
+            "original_url": image_url,
+            "background_type": background_type,
+            "background_source": "local",
+            "processed_url": processed_url,
+            "processing_time": round(time.time() - start, 2),
+        }
+
+    async def process_with_autobg(
+        self,
+        image_url: str,
+        background_type: str = "showroom_indoor",
+    ) -> Dict[str, Any]:
+        """
+        Pipeline direct via AutoBG.ai.
+        Utilise les backgrounds intégrés d'AutoBG.
+        """
+        start = time.time()
+        
+        image_bytes = await self._download_image(image_url)
+        
+        # Mapper vers le background AutoBG
+        autobg_bg = AUTOBG_BACKGROUNDS.get(background_type, "showroom-indoor")
+        
+        result_bytes = await self._call_autobg(image_bytes, autobg_bg)
+        
+        ext = "png" if background_type == "transparent" else "jpg"
+        processed_url = await self._save_bytes(result_bytes, ext)
+        
+        return {
+            "id": str(uuid.uuid4()),
+            "status": "completed",
+            "original_url": image_url,
+            "background_type": background_type,
+            "autobg_background": autobg_bg,
+            "processed_url": processed_url,
+            "processing_time": round(time.time() - start, 2),
+        }
+
+    async def process_complete(
+        self,
+        image_url: str,
+        background_type: str = "showroom_indoor",
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Pipeline complet: utilise AutoBG si possible.
+        """
+        # Essayer d'utiliser AutoBG directement
+        if background_type in AUTOBG_BACKGROUNDS:
+            return await self.process_with_autobg(image_url, background_type)
+        
+        # Sinon, compositing local
+        return await self.apply_background(
+            image_url=image_url,
+            background_type=background_type,
+            **kwargs
+        )
 
     def _create_gradient_background(
         self, 
@@ -130,7 +303,6 @@ class ImageService:
         background = Image.new('RGB', size)
         draw = ImageDraw.Draw(background)
         
-        # Parse colors
         from_color = self._hex_to_rgb(colors[0])
         to_color = self._hex_to_rgb(colors[1])
         
@@ -151,201 +323,33 @@ class ImageService:
     def _add_shadow(
         self, 
         car_image: Image.Image, 
-        opacity: float = 0.3,
-        blur: int = 20,
-        offset_y: int = 10
+        opacity: float = 0.25,
+        blur: int = 25,
+        offset_y: int = 15
     ) -> Image.Image:
         """Ajoute une ombre sous la voiture."""
-        # Créer l'ombre à partir de l'alpha channel
         if car_image.mode != 'RGBA':
             return car_image
         
         alpha = car_image.split()[-1]
-        
-        # Ombre = silhouette noire floue
         shadow = Image.new('RGBA', car_image.size, (0, 0, 0, 0))
         shadow_alpha = alpha.copy()
-        
-        # Réduire l'opacité
         shadow_alpha = shadow_alpha.point(lambda x: int(x * opacity))
-        
-        # Aplatir et flouter
         shadow.putalpha(shadow_alpha)
         shadow = shadow.filter(ImageFilter.GaussianBlur(blur))
         
-        # Décaler vers le bas
         shadow_offset = Image.new('RGBA', car_image.size, (0, 0, 0, 0))
         shadow_offset.paste(shadow, (0, offset_y))
         
         return shadow_offset
 
-    def _add_reflection(
-        self,
-        car_image: Image.Image,
-        opacity: float = 0.15,
-        height_ratio: float = 0.3
-    ) -> Image.Image:
-        """Ajoute un reflet sous la voiture."""
-        if car_image.mode != 'RGBA':
-            return None
-        
-        # Flip vertical
-        reflection = car_image.transpose(Image.FLIP_TOP_BOTTOM)
-        
-        # Réduire la hauteur
-        new_height = int(car_image.height * height_ratio)
-        reflection = reflection.crop((0, 0, reflection.width, new_height))
-        
-        # Appliquer un gradient d'opacité (plus transparent en bas)
-        alpha = reflection.split()[-1]
-        gradient = Image.new('L', reflection.size)
-        draw = ImageDraw.Draw(gradient)
-        
-        for y in range(new_height):
-            alpha_value = int(255 * opacity * (1 - y / new_height))
-            draw.line([(0, y), (reflection.width, y)], fill=alpha_value)
-        
-        # Combiner les alphas
-        new_alpha = Image.composite(
-            alpha, 
-            Image.new('L', alpha.size, 0),
-            gradient
-        )
-        reflection.putalpha(new_alpha)
-        
-        return reflection
-
-    async def apply_background(
-        self,
-        transparent_url: str,
-        background_type: str = "showroom_indoor",
-        custom_background_url: Optional[str] = None,
-        scale: float = 1.0,
-        position_x: float = 0.5,
-        position_y: float = 0.7,
-        add_shadow: bool = True,
-        add_reflection: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        Applique un arrière-plan professionnel à une image transparente.
-        
-        Args:
-            transparent_url: URL de l'image avec fond transparent
-            background_type: Type de fond (voir backgrounds.py)
-            custom_background_url: URL d'un fond custom
-            scale: Échelle de la voiture (1.0 = 100%)
-            position_x: Position horizontale (0-1)
-            position_y: Position verticale (0-1)
-            add_shadow: Ajouter une ombre
-            add_reflection: Ajouter un reflet (style showroom)
-        """
-        start = time.time()
-        
-        # Charger l'image transparente
-        car_bytes = await self._download_image(transparent_url)
-        car_image = Image.open(io.BytesIO(car_bytes)).convert('RGBA')
-        
-        # Récupérer ou créer le fond
-        bg_config = get_background(background_type)
-        
-        if background_type == "custom" and custom_background_url:
-            # Fond custom
-            bg_bytes = await self._download_image(custom_background_url)
-            background = Image.open(io.BytesIO(bg_bytes)).convert('RGB')
-        elif bg_config and "url" in bg_config:
-            # Fond image
-            bg_bytes = await self._download_image(bg_config["url"])
-            background = Image.open(io.BytesIO(bg_bytes)).convert('RGB')
-        elif bg_config and "gradient" in bg_config:
-            # Fond dégradé
-            background = self._create_gradient_background(
-                (1920, 1080),  # Taille par défaut
-                bg_config["gradient"]
-            )
-        elif bg_config and "color" in bg_config:
-            # Fond couleur unie
-            color = self._hex_to_rgb(bg_config["color"])
-            background = Image.new('RGB', (1920, 1080), color)
-        else:
-            # Fallback: fond gris
-            background = Image.new('RGB', (1920, 1080), (128, 128, 128))
-        
-        # Redimensionner le fond si nécessaire
-        bg_width, bg_height = background.size
-        
-        # Appliquer l'échelle à la voiture
-        if scale != 1.0:
-            new_size = (int(car_image.width * scale), int(car_image.height * scale))
-            car_image = car_image.resize(new_size, Image.LANCZOS)
-        
-        # Redimensionner la voiture pour qu'elle occupe ~60-70% de la largeur
-        car_target_width = int(bg_width * 0.65)
-        ratio = car_target_width / car_image.width
-        car_image = car_image.resize(
-            (car_target_width, int(car_image.height * ratio)),
-            Image.LANCZOS
-        )
-        
-        # Calculer la position
-        car_x = int((bg_width - car_image.width) * position_x)
-        car_y = int((bg_height - car_image.height) * position_y)
-        
-        # Ajouter l'ombre si demandé
-        if add_shadow:
-            shadow = self._add_shadow(car_image, opacity=0.25, blur=25, offset_y=15)
-            background.paste(shadow, (car_x, car_y), shadow)
-        
-        # Ajouter le reflet si demandé
-        if add_reflection:
-            reflection = self._add_reflection(car_image, opacity=0.12, height_ratio=0.25)
-            if reflection:
-                refl_y = car_y + car_image.height
-                if refl_y + reflection.height <= bg_height:
-                    background.paste(reflection, (car_x, refl_y), reflection)
-        
-        # Coller la voiture
-        background.paste(car_image, (car_x, car_y), car_image)
-        
-        # Sauvegarder
-        processed_url = await self._save_image(background, "JPEG")
-        
+    async def list_autobg_backgrounds(self) -> Dict[str, Any]:
+        """Liste les backgrounds disponibles via AutoBG."""
         return {
-            "id": str(uuid.uuid4()),
-            "status": "completed",
-            "original_url": transparent_url,
-            "background_type": background_type,
-            "processed_url": processed_url,
-            "processing_time": round(time.time() - start, 2),
+            "autobg_supported": list(AUTOBG_BACKGROUNDS.keys()),
+            "mapping": AUTOBG_BACKGROUNDS,
+            "note": "Ces backgrounds utilisent directement l'API AutoBG.ai",
         }
-
-    async def process_complete(
-        self,
-        image_url: str,
-        background_type: str = "showroom_indoor",
-        **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Pipeline complet: remove-bg + apply background.
-        
-        Combine les deux étapes en une seule.
-        """
-        start = time.time()
-        
-        # Étape 1: Remove background
-        result_bg = await self.remove_background(image_url)
-        
-        # Étape 2: Apply background
-        result_final = await self.apply_background(
-            transparent_url=result_bg["processed_url"],
-            background_type=background_type,
-            **kwargs
-        )
-        
-        result_final["original_url"] = image_url
-        result_final["transparent_url"] = result_bg["processed_url"]
-        result_final["processing_time"] = round(time.time() - start, 2)
-        
-        return result_final
 
 
 # Singleton

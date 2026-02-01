@@ -38,6 +38,8 @@ router = APIRouter(prefix="/image", tags=["Image Processing"])
 async def health():
     """Status du module image."""
     from app.core.config import settings
+    from .service import AUTOBG_BACKGROUNDS
+    
     autobg_configured = bool(getattr(settings, 'AUTOBG_API_KEY', None))
     
     pillow_ok = False
@@ -53,7 +55,15 @@ async def health():
         "autobg_configured": autobg_configured,
         "pillow_available": pillow_ok,
         "backgrounds_available": len(BACKGROUNDS),
+        "autobg_backgrounds": len(AUTOBG_BACKGROUNDS),
     }
+
+
+@router.get("/autobg-backgrounds")
+async def list_autobg_backgrounds():
+    """Liste les backgrounds supportés par AutoBG.ai."""
+    service = get_image_service()
+    return await service.list_autobg_backgrounds()
 
 
 @router.get("/backgrounds", response_model=BackgroundListResponse)
