@@ -102,6 +102,7 @@ class ImageService:
         background_name: str,
         position: str = "center",
         scale: float = 0.85,
+        vertical_offset: float = 0.0,
     ) -> bytes:
         """
         Compose une voiture (PNG transparent) sur un background.
@@ -111,6 +112,7 @@ class ImageService:
             background_name: Nom du background (showroom, garage, etc.)
             position: Position de la voiture (center, left, right)
             scale: Échelle de la voiture (0.5-1.0)
+            vertical_offset: Décalage vertical (-0.1 à 0.1, négatif = plus bas)
             
         Returns:
             Image JPG finale
@@ -129,7 +131,7 @@ class ImageService:
         car_img = self._resize_car(car_img, bg_img.size, scale)
         
         # Calculate position
-        x, y = self._calculate_position(car_img.size, bg_img.size, position)
+        x, y = self._calculate_position(car_img.size, bg_img.size, position, vertical_offset)
         
         # Composite
         result = bg_img.copy()
@@ -180,13 +182,22 @@ class ImageService:
         car_size: Tuple[int, int],
         bg_size: Tuple[int, int],
         position: str,
+        vertical_offset: float = 0.0,
     ) -> Tuple[int, int]:
-        """Calculate car position on background."""
+        """Calculate car position on background.
+        
+        Args:
+            vertical_offset: Offset from bottom (negative = lower, positive = higher)
+                            Value is percentage of bg height (-0.1 to 0.1 typical)
+        """
         car_w, car_h = car_size
         bg_w, bg_h = bg_size
         
-        # Vertical: bottom-aligned with small margin
-        y = bg_h - car_h - int(bg_h * 0.05)
+        # Vertical: bottom-aligned with minimal margin (car sits on "floor")
+        # Small negative margin to ensure car touches the ground
+        base_margin = int(bg_h * 0.02)  # 2% margin from bottom
+        offset_pixels = int(bg_h * vertical_offset)
+        y = bg_h - car_h - base_margin + offset_pixels
         
         # Horizontal
         if position == "left":
@@ -206,6 +217,7 @@ class ImageService:
         background_name: str,
         position: str = "center",
         scale: float = 0.85,
+        vertical_offset: float = 0.0,
         remove_bg_method: str = "auto",
     ) -> Dict[str, Any]:
         """
@@ -234,6 +246,7 @@ class ImageService:
             background_name,
             position=position,
             scale=scale,
+            vertical_offset=vertical_offset,
         )
         
         # Save final version

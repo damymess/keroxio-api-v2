@@ -40,6 +40,7 @@ class CompositeRequest(BaseModel):
     background: str
     position: str = "center"
     scale: float = 0.85
+    vertical_offset: float = 0.0  # -0.1 to 0.1 (negative = lower)
 
 
 class ProcessRequest(BaseModel):
@@ -47,6 +48,7 @@ class ProcessRequest(BaseModel):
     background: str
     position: str = "center"
     scale: float = 0.85
+    vertical_offset: float = 0.0  # -0.1 to 0.1 (negative = lower)
 
 
 class ProcessResponse(BaseModel):
@@ -269,6 +271,7 @@ async def process_image(request: ProcessRequest):
             request.background,
             position=request.position,
             scale=request.scale,
+            vertical_offset=request.vertical_offset,
         )
         
         return ProcessResponse(**result)
@@ -282,9 +285,12 @@ async def process_image_upload(
     background: str = Form(...),
     position: str = Form("center"),
     scale: float = Form(0.85),
+    vertical_offset: float = Form(0.0),
 ):
     """
     Pipeline complet avec upload direct.
+    
+    vertical_offset: -0.1 à 0.1 (négatif = plus bas sur l'image)
     """
     # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
@@ -301,6 +307,7 @@ async def process_image_upload(
             background,
             position=position,
             scale=scale,
+            vertical_offset=vertical_offset,
         )
         return ProcessResponse(**result)
     except Exception as e:
