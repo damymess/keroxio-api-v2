@@ -14,6 +14,8 @@ from app.modules.subscription.router import router as subscription_router
 from app.modules.crm.router import router as crm_router
 from app.modules.email.router import router as email_router
 from app.modules.notification.router import router as notification_router
+from app.modules.pricing.router import router as pricing_router
+from app.modules.immat.router import router as immat_router
 
 
 @asynccontextmanager
@@ -63,3 +65,5 @@ app.include_router(subscription_router, prefix="/subscription", tags=["Subscript
 app.include_router(crm_router, prefix="/crm", tags=["CRM"])
 app.include_router(email_router, prefix="/email", tags=["Email"])
 app.include_router(notification_router, prefix="/notification", tags=["Notification"])
+app.include_router(pricing_router, prefix="/pricing", tags=["Pricing"])
+app.include_router(immat_router, prefix="/immat", tags=["Immatriculation"])
