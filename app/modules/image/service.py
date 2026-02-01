@@ -32,7 +32,7 @@ class ImageService:
     async def remove_background(
         self,
         image_bytes: bytes,
-        method: str = "rembg",
+        method: str = "auto",
     ) -> bytes:
         """
         Supprime l'arrière-plan d'une image.
@@ -44,10 +44,18 @@ class ImageService:
         Returns:
             PNG avec fond transparent
         """
-        if method == "rembg":
-            return await self._remove_bg_rembg(image_bytes)
-        elif method == "removebg":
+        # Auto-select best available method
+        if method == "auto":
+            api_key = getattr(settings, 'REMOVEBG_API_KEY', None)
+            if api_key:
+                method = "removebg"
+            else:
+                method = "rembg"
+        
+        if method == "removebg":
             return await self._remove_bg_api(image_bytes)
+        elif method == "rembg":
+            return await self._remove_bg_rembg(image_bytes)
         else:
             raise ValueError(f"Unknown method: {method}")
     
