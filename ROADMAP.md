@@ -133,12 +133,13 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 ### Phase 4 : INTÉGRATION DASHBOARD 🎨 ✅ TERMINÉ
 - [x] Refonte complète du dashboard selon vision produit
 - [x] Workflow 5 étapes (Plaque → Photos → Prix → Annonce → Publier)
-- [x] UI upload photos + sélection background
-- [x] Intégration estimation prix
-- [x] Génération annonce automatique
+- [x] UI upload photos + sélection background (API image connectée)
+- [x] Intégration estimation prix (API pricing connectée)
+- [x] Génération annonce automatique (API annonce connectée)
+- [x] Validation plaque (API immat connectée)
 - [x] Liens publication (LeBonCoin, LaCentrale, ParuVendu)
-- [ ] Option masquage de plaque (à faire)
-- [ ] Connexion réelle aux APIs (mock data actuellement)
+- [ ] Option masquage de plaque
+- [ ] OCR plaque automatique (actuellement manuel)
 
 ### Phase 5 : WORKERS ASYNC 🔄
 - [ ] Redis Queue pour traitement background
@@ -180,17 +181,18 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ## 📝 Changelog
 
-### 2026-02-01 17:05 - Dashboard REFAIT 📱 ✅
+### 2026-02-01 17:10 - Dashboard REFAIT + APIs connectées 📱 ✅
 - ✅ Refonte complète selon vision produit originale
 - ✅ Suppression CRM (hors scope)
 - ✅ Workflow 5 étapes : Plaque → Photos → Prix → Annonce → Publier
 - ✅ Page /new avec wizard complet
 - ✅ Dashboard accueil avec véhicules récents + stats
 - ✅ Sidebar simplifiée (Accueil, Mes Véhicules, FAQ, Paramètres)
-- ✅ UI sélection backgrounds
-- ✅ Génération annonce auto (mock)
-- ✅ Liens publication externes
-- ⏳ Données mockées, connexion APIs à faire
+- ✅ **API Image connectée** (backgrounds + traitement)
+- ✅ **API Pricing connectée** (estimation prix)
+- ✅ **API Annonce connectée** (génération texte)
+- ✅ **API Immat connectée** (validation plaque)
+- ✅ Liens publication externes (LeBonCoin, LaCentrale, ParuVendu)
 
 ### 2026-02-01 14:10 - Module Image FINALISÉ 🖼️ ✅
 - ✅ Smart auto-scaling basé sur orientation voiture
@@ -222,11 +224,10 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ## 🎯 Prochaine Action
 
-**→ Phase 4.5 : Connexion APIs réelles**
+**→ Phase 4.5 : Finitions**
 
-1. [ ] Connecter étape 1 (Plaque) → API immat.keroxio.fr
-2. [ ] Connecter étape 2 (Photos) → API api.keroxio.fr/image/process
-3. [ ] Connecter étape 3 (Prix) → API pricing.keroxio.fr
-4. [ ] Connecter étape 4 (Annonce) → API annonce.keroxio.fr
-5. [ ] Masquage de plaque sur photos
-6. [ ] Stockage véhicules en base
+1. [ ] OCR automatique de la plaque (sans prompt manuel)
+2. [ ] Masquage de plaque sur photos
+3. [ ] Stockage véhicules en base (historique)
+4. [ ] Download batch des photos traitées
+5. [ ] Preview photos avant/après
