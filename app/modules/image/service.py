@@ -59,8 +59,13 @@ class AutoBGService:
             response.raise_for_status()
             result = response.json()
             
-            if result.get("status"):
-                return result.get("data", {}).get("templates", [])
+            if isinstance(result, dict) and result.get("status"):
+                data = result.get("data", {})
+                if isinstance(data, dict):
+                    return data.get("templates", [])
+                return data if isinstance(data, list) else []
+            elif isinstance(result, list):
+                return result
             return []
     
     async def create_template(
@@ -127,11 +132,17 @@ class AutoBGService:
             return self._templates_cache[name]
         
         # List existing templates
-        templates = await self.list_templates()
-        for t in templates:
-            if t.get("name") == name:
-                self._templates_cache[name] = t.get("id")
-                return t.get("id")
+        try:
+            templates = await self.list_templates()
+            for t in templates:
+                if isinstance(t, dict):
+                    t_name = t.get("name") or t.get("templateName") or ""
+                    t_id = t.get("id") or t.get("templateID")
+                    if t_name == name and t_id:
+                        self._templates_cache[name] = t_id
+                        return t_id
+        except Exception as e:
+            print(f"Error listing templates: {e}")
         
         # Create new template
         async with httpx.AsyncClient(timeout=30.0) as client:
