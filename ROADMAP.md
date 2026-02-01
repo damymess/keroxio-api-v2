@@ -1,6 +1,6 @@
 # 🚗 KEROXIO - Feuille de Route
 
-> Dernière mise à jour : 2026-02-01 17:05
+> Dernière mise à jour : 2026-02-01 18:04
 
 ---
 
@@ -23,13 +23,13 @@
 
 ---
 
-## 🟢 État Actuel (2026-02-01) - MODULE IMAGE FINALISÉ ✅
+## 🟢 État Actuel (2026-02-01) - PHASE 4 COMPLÈTE ✅
 
 ### Architecture consolidée : 16 → 8 services
 
 | Service | URL | Status | Rôle |
 |---------|-----|--------|------|
-| **api-v2** | api.keroxio.fr | ✅ healthy | **API unifiée (9 modules)** |
+| **api-v2** | api.keroxio.fr | ✅ healthy | **API unifiée (10 modules)** |
 | web | keroxio.fr | ✅ healthy | Landing page |
 | dashboard | app.keroxio.fr | ✅ running | App principale |
 | admin | admin.keroxio.fr | ✅ running | Panel admin |
@@ -38,21 +38,27 @@
 | pricing | pricing.keroxio.fr | ✅ healthy | Estimation prix |
 | storage | storage.keroxio.fr | ✅ healthy | Stockage fichiers |
 
+### Modules API v2 (10)
+- **auth** - JWT authentication
+- **billing** - Stripe payments
+- **subscription** - Gestion abos
+- **crm** - Leads/contacts
+- **email** - Resend emails
+- **notification** - Notifs in-app
+- **pricing** - Estimation prix véhicules
+- **immat** - Validation plaques + **OCR**
+- **image** - Remove-bg + backgrounds + **masquage plaque**
+- **vehicle** - **Stockage véhicules** (NEW)
+
 ---
 
-## 🖼️ Module Image - TERMINÉ ✅
+## 🖼️ Module Image - COMPLET ✅
 
 ### Stack technique
 - **Remove-bg** : remove.bg API (~0.6s, ~0.05€/image)
 - **Composite** : Pillow (Python) (~0.15s)
+- **Masquage plaque** : Plate Recognizer + Pillow blur
 - **Total** : ~0.7s par image
-
-### Auto-scaling intelligent
-| Orientation | Ratio | Scale |
-|-------------|-------|-------|
-| Vue côté (landscape) | > 1.3 | 45% |
-| Vue face/arrière (portrait) | < 0.8 | 30% hauteur |
-| Vue 3/4 | 0.8-1.3 | **38%** |
 
 ### Endpoints
 
@@ -67,42 +73,60 @@ POST /image/remove-bg/upload    → PNG transparent (upload)
 POST /image/composite           → Voiture + fond
 POST /image/process             → Pipeline complet ⚡
 POST /image/process/upload      → Pipeline complet (upload)
+POST /image/mask-plate          → Flouter la plaque 🆕
 
 GET  /image/files/{filename}    → Télécharger résultat
 GET  /image/backgrounds/{f}     → Servir background
 POST /image/info                → Métadonnées image
 ```
 
-### Backgrounds disponibles (7 customs)
+---
 
-| ID | Nom | Description |
-|----|-----|-------------|
-| `showroom_led` | Showroom LED | LED ceiling grid premium |
-| `showroom_blue` | Showroom Blue | LED strips bleus |
-| `neon_cyberpunk` | Cyberpunk | Néon rose/cyan |
-| `garage_concrete` | Garage Béton | Piliers béton |
-| `garage_industrial` | Industriel | Lignes jaunes |
-| `tunnel_led` | Tunnel LED | Tunnel néon |
-| `garage_dark` | Garage Dark | Étagères sombres |
+## 🚗 Module Vehicle - NOUVEAU ✅
 
-### Exemple d'utilisation
+### Table PostgreSQL `vehicles`
 
-```bash
-# Pipeline complet en 1 requête (scale auto à 38%)
-curl -X POST https://api.keroxio.fr/image/process/upload \
-  -F "file=@voiture.jpg" \
-  -F "background=showroom_led"
+| Champ | Type | Description |
+|-------|------|-------------|
+| id | UUID | Primary key |
+| user_id | UUID | Owner |
+| plaque | String | Immatriculation |
+| marque, modele, version | String | Infos véhicule |
+| annee, kilometrage | Integer | Année, km |
+| carburant, boite, couleur | String | Caractéristiques |
+| prix_estime_*, prix_choisi | Integer | Prix |
+| photos_originales | JSON | URLs photos originales |
+| photos_traitees | JSON | URLs photos traitées |
+| annonce_titre, annonce_description | Text | Annonce |
+| status | String | draft/ready/published |
+| published_platforms | JSON | Plateformes de publication |
 
-# Réponse (~0.7s)
-{
-  "id": "xxx",
-  "status": "completed",
-  "transparent_url": "https://api.keroxio.fr/image/files/xxx_transparent.png",
-  "final_url": "https://api.keroxio.fr/image/files/xxx_final.jpg",
-  "background": "showroom_led",
-  "processing_time": 0.72
-}
+### Endpoints
+
 ```
+POST   /vehicle              → Créer un véhicule
+GET    /vehicle              → Liste mes véhicules
+GET    /vehicle/{id}         → Détail véhicule
+PATCH  /vehicle/{id}         → Modifier véhicule
+DELETE /vehicle/{id}         → Supprimer véhicule
+POST   /vehicle/{id}/publish → Marquer comme publié
+```
+
+---
+
+## 🔍 Module Immat - OCR ACTIVÉ ✅
+
+### Endpoints
+
+```
+GET  /immat/{plaque}         → Lookup véhicule
+GET  /immat/{plaque}/validate → Valider format plaque
+POST /immat/ocr              → OCR depuis image 🆕
+POST /immat/ocr/full         → OCR + lookup véhicule 🆕
+GET  /immat/ocr/health       → Status OCR
+```
+
+**Provider OCR** : Plate Recognizer API ✅ configuré
 
 ---
 
@@ -115,38 +139,38 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ### Phase 2 : CONSOLIDER L'API ✅ TERMINÉ
 - [x] Créer `keroxio-api-v2` (FastAPI)
-- [x] Migrer tous les modules (auth, billing, crm, email, notif, subscription)
-- [x] Ajouter modules pricing + immat
+- [x] Migrer tous les modules
 - [x] Basculer api.keroxio.fr → api-v2
-- [x] Supprimer les 10 anciens microservices
 - [x] **Résultat : 16 services → 8 services**
 
 ### Phase 3 : MODULE IMAGE ✅ TERMINÉ
 - [x] Intégrer remove.bg API
 - [x] Créer service composite Pillow
 - [x] Smart auto-scaling (38% pour vue 3/4)
-- [x] Trim transparent pixels
 - [x] 7 backgrounds custom uploadés
-- [x] Endpoint `/image/process/upload` fonctionnel
 - [x] **Résultat : ~0.7s par image, 0.05€/image**
 
-### Phase 4 : INTÉGRATION DASHBOARD 🎨 ✅ TERMINÉ
-- [x] Refonte complète du dashboard selon vision produit
-- [x] Workflow 5 étapes (Plaque → Photos → Prix → Annonce → Publier)
-- [x] UI upload photos + sélection background (API image connectée)
-- [x] Intégration estimation prix (API pricing connectée)
-- [x] Génération annonce automatique (API annonce connectée)
-- [x] Validation plaque (API immat connectée)
+### Phase 4 : INTÉGRATION DASHBOARD ✅ TERMINÉ
+- [x] Refonte complète du dashboard (workflow 5 étapes)
+- [x] UI upload photos + sélection background
+- [x] Toutes les APIs connectées (image, pricing, annonce, immat)
 - [x] Liens publication (LeBonCoin, LaCentrale, ParuVendu)
-- [ ] Option masquage de plaque
-- [ ] OCR plaque automatique (actuellement manuel)
+- [x] **OCR plaque automatique** (Plate Recognizer)
+- [x] **Masquage plaque** (POST /image/mask-plate)
+- [x] **Module Vehicle** (stockage PostgreSQL)
 
-### Phase 5 : WORKERS ASYNC 🔄
+### Phase 5 : FINITIONS 🎨 EN COURS
+- [ ] Brancher dashboard → API vehicle (sauvegarder les véhicules créés)
+- [ ] Download batch des photos traitées
+- [ ] Preview photos avant/après
+- [ ] Améliorer UX mobile
+
+### Phase 6 : WORKERS ASYNC 🔄
 - [ ] Redis Queue pour traitement background
 - [ ] Worker image (batch processing)
 - [ ] Worker pricing (estimation IA)
 
-### Phase 6 : SCALE & MONITORING 📈
+### Phase 7 : SCALE & MONITORING 📈
 - [ ] Prometheus + Grafana
 - [ ] Logs centralisés
 - [ ] Load testing
@@ -160,18 +184,20 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 | Service | Usage | Coût |
 |---------|-------|------|
 | **remove.bg** | Background removal | ~0.05€/image |
+| **Plate Recognizer** | OCR plaques | ~0.01€/lecture |
 | **Resend** | Emails transactionnels | Gratuit (quota) |
 | **Stripe** | Paiements | 1.4% + 0.25€ |
 
 ### Clés API configurées (Coolify)
 - `REMOVEBG_API_KEY` ✅
+- `PLATE_RECOGNIZER_API_KEY` ✅
 - `AUTOBG_API_KEY` (backup)
 - `RESEND_API_KEY` ✅
 - `STRIPE_SECRET_KEY` ✅
 
 ### Stack
 - **Backend** : Python FastAPI
-- **Frontend** : Next.js/Vite + TypeScript + TailwindCSS
+- **Frontend** : Vite + React + TypeScript + TailwindCSS
 - **DB** : PostgreSQL
 - **Cache** : Redis
 - **Storage** : Cloudflare R2
@@ -181,53 +207,40 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ## 📝 Changelog
 
-### 2026-02-01 17:10 - Dashboard REFAIT + APIs connectées 📱 ✅
+### 2026-02-01 18:04 - Phase 4 COMPLÈTE 🎉
+- ✅ **OCR plaque automatique** - Dashboard branché sur /immat/ocr/full
+- ✅ **Masquage plaque** - POST /image/mask-plate (Plate Recognizer + blur Pillow)
+- ✅ **Module Vehicle** - CRUD complet, stockage PostgreSQL
+- ✅ Dashboard workflow 5 étapes fonctionnel
+- ✅ Toutes les APIs connectées
+
+### 2026-02-01 17:10 - Dashboard REFAIT 📱
 - ✅ Refonte complète selon vision produit originale
 - ✅ Suppression CRM (hors scope)
 - ✅ Workflow 5 étapes : Plaque → Photos → Prix → Annonce → Publier
 - ✅ Page /new avec wizard complet
-- ✅ Dashboard accueil avec véhicules récents + stats
-- ✅ Sidebar simplifiée (Accueil, Mes Véhicules, FAQ, Paramètres)
-- ✅ **API Image connectée** (backgrounds + traitement)
-- ✅ **API Pricing connectée** (estimation prix)
-- ✅ **API Annonce connectée** (génération texte)
-- ✅ **API Immat connectée** (validation plaque)
-- ✅ Liens publication externes (LeBonCoin, LaCentrale, ParuVendu)
+- ✅ Sidebar simplifiée
 
-### 2026-02-01 14:10 - Module Image FINALISÉ 🖼️ ✅
-- ✅ Smart auto-scaling basé sur orientation voiture
-- ✅ Scale final : **38%** pour vue 3/4
-- ✅ 7 backgrounds custom (showroom_led, neon_cyberpunk, etc.)
-- ✅ Trim transparent pixels
-- ✅ Position voiture en bas (sol)
-- ✅ Performance : **~0.7s** par image
-- ✅ **DOSSIER KEROXIO FERMÉ**
-
-### 2026-02-01 13:25 - Module Image COMPLET 🖼️
-- ✅ Intégration **remove.bg API** (rapide, ~0.6s)
-- ✅ Composite **Pillow** local (~0.15s)
-- ✅ Pipeline complet **~1s** par image
-- ✅ 6 backgrounds générés automatiquement
-- ✅ Endpoint `/image/process` fonctionnel
+### 2026-02-01 14:10 - Module Image FINALISÉ 🖼️
+- ✅ Smart auto-scaling (38% pour vue 3/4)
+- ✅ 7 backgrounds custom
+- ✅ Performance : ~0.7s par image
 
 ### 2026-02-01 11:00 - Migration Phase 2 complète
-- ✅ Dashboard connecté à api-v2
-- ✅ api.keroxio.fr → pointe vers api-v2
+- ✅ api.keroxio.fr → api-v2
 - ✅ Modules pricing + immat ajoutés
 
 ### 2026-01-31 21:30 - API v2 Déployée 🚀
 - ✅ Créé `keroxio-api-v2` (FastAPI monolithique)
-- ✅ Modules: auth, billing, subscription, crm, email, notification
 - ✅ DB dédiée `keroxio_v2`
 
 ---
 
 ## 🎯 Prochaine Action
 
-**→ Phase 4.5 : Finitions**
+**→ Phase 5 : Finitions**
 
-1. [ ] OCR automatique de la plaque (sans prompt manuel)
-2. [ ] Masquage de plaque sur photos
-3. [ ] Stockage véhicules en base (historique)
-4. [ ] Download batch des photos traitées
-5. [ ] Preview photos avant/après
+1. [ ] Brancher dashboard → API vehicle (persist les véhicules)
+2. [ ] Download batch des photos traitées (ZIP)
+3. [ ] Preview photos avant/après
+4. [ ] Tests E2E du flow complet
