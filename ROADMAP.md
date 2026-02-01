@@ -161,8 +161,8 @@ GET  /immat/ocr/health       → Status OCR
 
 ### Phase 5 : FINITIONS 🎨 EN COURS
 - [x] Brancher dashboard → API vehicle (sauvegarder les véhicules créés)
-- [ ] Download/partage photos (save to gallery, share)
-- [ ] Preview photos avant/après
+- [x] Download/partage photos (save to gallery, share)
+- [x] Preview photos avant/après
 - [ ] Améliorer UX mobile
 
 ### Phase 6 : WORKERS ASYNC 🔄
@@ -207,6 +207,13 @@ GET  /immat/ocr/health       → Status OCR
 
 ## 📝 Changelog
 
+### 2026-02-01 18:15 - Phase 5.2 & 5.3 - Download + Preview 📸
+- ✅ Grid photos traitées avec download/share
+- ✅ Web Share API pour mobile
+- ✅ "Télécharger tout" / "Partager"
+- ✅ Comparaison avant/après côte à côte
+- ✅ Labels "Avant" / "Après"
+
 ### 2026-02-01 18:10 - Phase 5.1 - Dashboard → API Vehicle 🔗
 - ✅ vehicleApi client (CRUD operations)
 - ✅ NewVehicle sauvegarde à chaque étape
@@ -248,6 +255,7 @@ GET  /immat/ocr/health       → Status OCR
 **→ Phase 5 : Finitions (suite)**
 
 1. [x] Brancher dashboard → API vehicle ✅
-2. [ ] Download/partage photos (enregistrer galerie, partager)
-3. [ ] Preview photos avant/après
-4. [ ] Tests E2E du flow complet
+2. [x] Download/partage photos ✅
+3. [x] Preview photos avant/après ✅
+4. [ ] Améliorer UX mobile
+5. [ ] Tests E2E du flow complet
