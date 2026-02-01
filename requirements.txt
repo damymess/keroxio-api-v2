@@ -28,4 +28,5 @@ python-dotenv==1.0.0
 
 # Image processing
 Pillow==10.2.0
-rembg==2.0.50
+rembg[cpu]==2.0.50
+onnxruntime==1.16.3
