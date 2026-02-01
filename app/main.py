@@ -17,6 +17,7 @@ from app.modules.notification.router import router as notification_router
 from app.modules.pricing.router import router as pricing_router
 from app.modules.immat.router import router as immat_router
 from app.modules.image.router import router as image_router
+from app.modules.vehicle.router import router as vehicle_router
 
 
 @asynccontextmanager
@@ -55,7 +56,7 @@ async def root():
     return {
         "name": "Keroxio API",
         "version": "2.0.0",
-        "modules": ["auth", "billing", "subscription", "crm", "email", "notification", "pricing", "immat", "image"]
+        "modules": ["auth", "billing", "subscription", "crm", "email", "notification", "pricing", "immat", "image", "vehicle"]
     }
 
 
@@ -69,3 +70,4 @@ app.include_router(notification_router, prefix="/notification", tags=["Notificat
 app.include_router(pricing_router, prefix="/pricing", tags=["Pricing"])
 app.include_router(immat_router, prefix="/immat", tags=["Immatriculation"])
 app.include_router(image_router)
+app.include_router(vehicle_router)
