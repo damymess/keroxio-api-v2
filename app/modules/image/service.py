@@ -206,7 +206,7 @@ class ImageService:
         background_name: str,
         position: str = "center",
         scale: float = 0.85,
-        remove_bg_method: str = "rembg",
+        remove_bg_method: str = "auto",
     ) -> Dict[str, Any]:
         """
         Pipeline complet: remove-bg + composite.
