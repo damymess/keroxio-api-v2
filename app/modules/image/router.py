@@ -39,7 +39,7 @@ class CompositeRequest(BaseModel):
     car_url: str  # PNG transparent
     background: str
     position: str = "center"
-    scale: float = 0.85
+    scale: float = 0.55  # 0.4-0.7 recommended (% of background width)
     vertical_offset: float = 0.0  # -0.1 to 0.1 (negative = lower)
 
 
@@ -47,7 +47,7 @@ class ProcessRequest(BaseModel):
     image_url: str
     background: str
     position: str = "center"
-    scale: float = 0.85
+    scale: float = 0.55  # 0.4-0.7 recommended (% of background width)
     vertical_offset: float = 0.0  # -0.1 to 0.1 (negative = lower)
 
 
@@ -284,7 +284,7 @@ async def process_image_upload(
     file: UploadFile = File(...),
     background: str = Form(...),
     position: str = Form("center"),
-    scale: float = Form(0.85),
+    scale: float = Form(0.55),
     vertical_offset: float = Form(0.0),
 ):
     """

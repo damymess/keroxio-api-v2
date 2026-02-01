@@ -171,7 +171,13 @@ class ImageService:
         bg_size: Tuple[int, int],
         scale: float,
     ) -> Image.Image:
-        """Resize car to fit background while maintaining aspect ratio."""
+        """Resize car to fit background while maintaining aspect ratio.
+        
+        Scale is relative to background:
+        - 0.5 = car takes 50% of background width (good for most cases)
+        - 0.6 = car takes 60% of background width
+        - 0.7 = car takes 70% of background width (large)
+        """
         # First trim transparent edges
         car = self._trim_transparent(car)
         
@@ -183,9 +189,9 @@ class ImageService:
         ratio = target_w / car_w
         target_h = int(car_h * ratio)
         
-        # Make sure car doesn't exceed background height
-        if target_h > bg_h * 0.8:
-            target_h = int(bg_h * 0.8)
+        # Make sure car doesn't exceed 60% of background height
+        if target_h > bg_h * 0.6:
+            target_h = int(bg_h * 0.6)
             ratio = target_h / car_h
             target_w = int(car_w * ratio)
         
