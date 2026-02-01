@@ -335,3 +335,26 @@ async def get_processed_file(filename: str):
         media_type=media_type,
         filename=filename,
     )
+
+
+@router.get("/backgrounds/{filename}")
+async def get_background_file(filename: str):
+    """Récupère un fichier background."""
+    service = get_image_service()
+    
+    # Check storage/backgrounds first
+    filepath = service.storage_path / "backgrounds" / filename
+    if not filepath.exists():
+        # Check backgrounds_images folder
+        filepath = service.backgrounds_path / filename
+    
+    if not filepath.exists():
+        raise HTTPException(404, "Background not found")
+    
+    media_type = "image/png" if filename.endswith(".png") else "image/jpeg"
+    
+    return FileResponse(
+        path=filepath,
+        media_type=media_type,
+        filename=filename,
+    )

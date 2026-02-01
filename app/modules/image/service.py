@@ -274,7 +274,7 @@ class ImageService:
                     backgrounds.append({
                         "name": f.stem,
                         "filename": f.name,
-                        "url": f"{self.storage_url}/backgrounds/{f.name}",
+                        "url": f"{self.api_url}/image/backgrounds/{f.name}",
                     })
         
         return backgrounds
@@ -306,7 +306,7 @@ class ImageService:
         return {
             "name": name,
             "filename": filename,
-            "url": f"{self.storage_url}/backgrounds/{filename}",
+            "url": f"{self.api_url}/image/backgrounds/{filename}",
         }
     
     # ========== UTILITIES ==========
