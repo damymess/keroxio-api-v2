@@ -325,6 +325,47 @@ async def get_info(file: UploadFile = File(...)):
         raise HTTPException(400, f"Image invalide: {str(e)}")
 
 
+@router.post("/mask-plate")
+async def mask_plate(
+    file: UploadFile = File(...),
+    blur_strength: int = Form(30),
+):
+    """
+    Détecte et floute la plaque d'immatriculation sur une image.
+    
+    Args:
+        file: Image à traiter (JPEG, PNG)
+        blur_strength: Intensité du flou (10-50, default: 30)
+    
+    Returns:
+        Image JPEG avec plaque floutée
+    """
+    # Validate file type
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
+    
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Image trop grande (max 10MB)")
+    
+    # Clamp blur strength
+    blur_strength = max(10, min(50, blur_strength))
+    
+    service = get_image_service()
+    try:
+        masked = await service.mask_plate(content, blur_strength)
+        
+        return Response(
+            content=masked,
+            media_type="image/jpeg",
+            headers={"Content-Disposition": "attachment; filename=masked.jpg"}
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Plate masking failed: {str(e)}")
+
+
 @router.get("/files/{filename}")
 async def get_processed_file(filename: str):
     """Récupère un fichier traité."""

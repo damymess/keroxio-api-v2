@@ -361,6 +361,77 @@ class ImageService:
             "url": f"{self.api_url}/image/backgrounds/{filename}",
         }
     
+    # ========== PLATE MASKING ==========
+    
+    async def mask_plate(
+        self,
+        image_bytes: bytes,
+        blur_strength: int = 30,
+    ) -> bytes:
+        """
+        Détecte et floute la plaque d'immatriculation sur une image.
+        
+        Args:
+            image_bytes: Image source en bytes
+            blur_strength: Intensité du flou (default: 30)
+            
+        Returns:
+            Image avec plaque floutée en bytes (JPEG)
+        """
+        from PIL import ImageFilter
+        import os
+        import base64
+        
+        api_key = os.getenv("PLATE_RECOGNIZER_API_KEY", "")
+        if not api_key:
+            raise ValueError("Plate Recognizer API key not configured")
+        
+        # Call Plate Recognizer to get plate bounding box
+        image_b64 = base64.b64encode(image_bytes).decode()
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.platerecognizer.com/v1/plate-reader/",
+                headers={"Authorization": f"Token {api_key}"},
+                data={"upload": image_b64, "regions": "fr"}
+            )
+            
+            if response.status_code not in [200, 201]:
+                raise ValueError(f"Plate detection failed: {response.status_code}")
+            
+            data = response.json()
+            results = data.get("results", [])
+            
+            if not results:
+                # No plate found, return original
+                return image_bytes
+        
+        # Open image with Pillow
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        
+        # Process each detected plate
+        for result in results:
+            box = result.get("box", {})
+            xmin = int(box.get("xmin", 0))
+            ymin = int(box.get("ymin", 0))
+            xmax = int(box.get("xmax", 0))
+            ymax = int(box.get("ymax", 0))
+            
+            if xmax > xmin and ymax > ymin:
+                # Extract plate region
+                plate_region = img.crop((xmin, ymin, xmax, ymax))
+                
+                # Apply gaussian blur
+                blurred = plate_region.filter(ImageFilter.GaussianBlur(blur_strength))
+                
+                # Paste back
+                img.paste(blurred, (xmin, ymin))
+        
+        # Save to bytes
+        output = io.BytesIO()
+        img.save(output, format="JPEG", quality=95)
+        return output.getvalue()
+    
     # ========== UTILITIES ==========
     
     async def download_image(self, url: str) -> bytes:
