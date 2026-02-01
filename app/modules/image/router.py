@@ -1,266 +1,155 @@
 """
 API endpoints pour le traitement d'images Keroxio.
+Intégration AutoBG.ai
 
 Endpoints:
-- POST /remove-bg : Supprime l'arrière-plan
-- POST /remove-bg/upload : Supprime l'arrière-plan (upload)
-- POST /apply-background : Applique un fond pro
-- POST /process : Pipeline complet (remove-bg + background)
-- GET /backgrounds : Liste les fonds disponibles
-- POST /info : Métadonnées image
-- POST /resize : Redimensionner
+- POST /remove-bg : Supprime l'arrière-plan (sans template)
+- POST /process : Traite avec un template (background)
+- GET /templates : Liste les templates AutoBG
+- POST /templates : Crée un nouveau template
+- GET /credits : Crédits restants
 - GET /health : Status du service
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
-from typing import Optional
-import base64
+from pydantic import BaseModel
+from typing import Optional, List
 import uuid
 import io
 
-from .schemas import (
-    RemoveBackgroundRequest,
-    RemoveBackgroundResponse,
-    ApplyBackgroundRequest,
-    ApplyBackgroundResponse,
-    BackgroundType,
-    BackgroundListResponse,
-    BackgroundInfo,
-)
 from .service import get_image_service
-from .backgrounds import list_backgrounds, BACKGROUNDS
 
 router = APIRouter(prefix="/image", tags=["Image Processing"])
 
+
+# ========== SCHEMAS ==========
+
+class RemoveBgRequest(BaseModel):
+    image_url: str
+    hide_plate: bool = False
+
+
+class RemoveBgResponse(BaseModel):
+    id: str
+    status: str
+    original_url: str
+    processed_url: str
+    processing_time: float
+
+
+class ProcessRequest(BaseModel):
+    image_url: str
+    template_name: str
+    background_url: str
+    hide_plate: bool = False
+
+
+class ProcessResponse(BaseModel):
+    id: str
+    status: str
+    original_url: str
+    processed_url: str
+    template_name: str
+    template_id: int
+    processing_time: float
+
+
+class TemplateInfo(BaseModel):
+    id: int
+    name: str
+
+
+# ========== ENDPOINTS ==========
 
 @router.get("/health")
 async def health():
     """Status du module image."""
     from app.core.config import settings
-    from .service import AUTOBG_BACKGROUNDS
     
     autobg_configured = bool(getattr(settings, 'AUTOBG_API_KEY', None))
-    
-    pillow_ok = False
-    try:
-        from PIL import Image
-        pillow_ok = True
-    except ImportError:
-        pass
     
     return {
         "status": "healthy",
         "module": "image",
         "autobg_configured": autobg_configured,
-        "pillow_available": pillow_ok,
-        "backgrounds_available": len(BACKGROUNDS),
-        "autobg_backgrounds": len(AUTOBG_BACKGROUNDS),
+        "api_base": "https://apis.autobg.ai/public/api/v1",
     }
 
 
-@router.get("/autobg-backgrounds")
-async def list_autobg_backgrounds():
-    """Liste les backgrounds supportés par AutoBG.ai."""
+@router.get("/credits")
+async def get_credits():
+    """Récupère les crédits AutoBG restants."""
     service = get_image_service()
-    return await service.list_autobg_backgrounds()
-
-
-@router.get("/backgrounds", response_model=BackgroundListResponse)
-async def get_backgrounds():
-    """Liste tous les arrière-plans professionnels disponibles."""
-    backgrounds = list_backgrounds()
-    return BackgroundListResponse(
-        backgrounds=[
-            BackgroundInfo(
-                id=bg["id"],
-                name=bg["name"],
-                category=bg["category"],
-                preview_url=bg.get("preview_url", ""),
-                description=bg.get("description"),
-            )
-            for bg in backgrounds
-        ],
-        total=len(backgrounds),
-    )
-
-
-@router.get("/backgrounds/{category}")
-async def get_backgrounds_by_category(category: str):
-    """Liste les arrière-plans d'une catégorie (showroom, studio, garage, outdoor)."""
-    backgrounds = [
-        bg for bg in list_backgrounds() 
-        if bg["category"] == category
-    ]
-    return {
-        "category": category,
-        "backgrounds": backgrounds,
-        "total": len(backgrounds),
-    }
-
-
-@router.post("/remove-bg", response_model=RemoveBackgroundResponse)
-async def remove_background(request: RemoveBackgroundRequest):
-    """
-    Supprime l'arrière-plan d'une image.
-    
-    Utilise AutoBG.ai pour un résultat optimisé véhicules.
-    Retourne une image PNG avec fond transparent.
-    """
-    service = get_image_service()
-    
     try:
-        result = await service.remove_background(request.image_url)
-        return RemoveBackgroundResponse(**result)
+        return await service.get_credits()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/remove-bg/upload", response_model=RemoveBackgroundResponse)
-async def remove_background_upload(file: UploadFile = File(...)):
-    """
-    Supprime l'arrière-plan d'une image uploadée.
-    
-    Accepte: JPEG, PNG, WebP
-    Retourne: URL de l'image transparente
-    """
-    from app.core.config import settings
-    from pathlib import Path
-    
-    # Valider le type de fichier
-    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
-        raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
-    
-    # Sauvegarder temporairement
-    content = await file.read()
-    
-    if len(content) > 10 * 1024 * 1024:  # 10MB limit
-        raise HTTPException(status_code=413, detail="Image trop grande (max 10MB)")
-    
-    filename = f"upload_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
-    
-    storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
-    uploads_path = storage_path / "uploads"
-    uploads_path.mkdir(parents=True, exist_ok=True)
-    
-    file_path = uploads_path / filename
-    file_path.write_bytes(content)
-    
-    storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
-    image_url = f"{storage_url}/uploads/{filename}"
-    
-    # Traiter
+@router.get("/templates")
+async def list_templates():
+    """Liste les templates AutoBG disponibles."""
     service = get_image_service()
     try:
-        result = await service.remove_background(image_url)
-        return RemoveBackgroundResponse(**result)
+        templates = await service.list_templates()
+        return {
+            "templates": templates,
+            "count": len(templates),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/apply-background", response_model=ApplyBackgroundResponse)
-async def apply_background(request: ApplyBackgroundRequest):
+@router.post("/remove-bg", response_model=RemoveBgResponse)
+async def remove_background(request: RemoveBgRequest):
     """
-    Applique un arrière-plan professionnel à une image.
+    Supprime l'arrière-plan d'une image via AutoBG.ai.
     
-    Si image_url n'a pas de fond transparent, il sera d'abord supprimé.
+    Utilise le mode "sans template" - retourne une image avec fond transparent.
     
     Options:
-    - background_type: Type de fond (showroom_indoor, studio_white, etc.)
-    - scale: Échelle de la voiture (0.5 à 2.0)
-    - position_x/y: Position (0.0 à 1.0)
-    - add_shadow: Ajouter une ombre réaliste
-    - add_reflection: Ajouter un reflet (style showroom luxe)
+    - hide_plate: Masquer la plaque d'immatriculation
     """
     service = get_image_service()
     
     try:
-        # Utiliser l'image transparente fournie ou traiter l'image source
-        if request.transparent_url:
-            transparent_url = request.transparent_url
-        else:
-            # Remove background first
-            result_bg = await service.remove_background(request.image_url)
-            transparent_url = result_bg["processed_url"]
-        
-        result = await service.apply_background(
-            transparent_url=transparent_url,
-            background_type=request.background_type.value,
-            custom_background_url=request.custom_background_url,
-            scale=request.scale,
-            position_x=request.position_x,
-            position_y=request.position_y,
-            add_shadow=request.add_shadow,
-            add_reflection=request.add_reflection,
+        result = await service.remove_background(
+            image_url=request.image_url,
+            hide_plate=request.hide_plate,
         )
-        
-        return ApplyBackgroundResponse(**result)
+        return RemoveBgResponse(
+            id=result["id"],
+            status=result["status"],
+            original_url=result["original_url"],
+            processed_url=result["processed_url"],
+            processing_time=result["processing_time"],
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/process", response_model=ApplyBackgroundResponse)
-async def process_complete(
-    image_url: str = Form(...),
-    background_type: BackgroundType = Form(BackgroundType.SHOWROOM_INDOOR),
-    scale: float = Form(1.0),
-    position_x: float = Form(0.5),
-    position_y: float = Form(0.7),
-    add_shadow: bool = Form(True),
-    add_reflection: bool = Form(False),
-):
-    """
-    Pipeline complet: Remove background + Apply background.
-    
-    Une seule requête pour obtenir le résultat final.
-    """
-    service = get_image_service()
-    
-    try:
-        result = await service.process_complete(
-            image_url=image_url,
-            background_type=background_type.value,
-            scale=scale,
-            position_x=position_x,
-            position_y=position_y,
-            add_shadow=add_shadow,
-            add_reflection=add_reflection,
-        )
-        return ApplyBackgroundResponse(**result)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/process/upload", response_model=ApplyBackgroundResponse)
-async def process_complete_upload(
+@router.post("/remove-bg/upload", response_model=RemoveBgResponse)
+async def remove_background_upload(
     file: UploadFile = File(...),
-    background_type: BackgroundType = Form(BackgroundType.SHOWROOM_INDOOR),
-    scale: float = Form(1.0),
-    position_x: float = Form(0.5),
-    position_y: float = Form(0.7),
-    add_shadow: bool = Form(True),
-    add_reflection: bool = Form(False),
+    hide_plate: bool = Form(False),
 ):
     """
-    Pipeline complet avec upload direct.
-    
-    Upload une image, supprime le fond, applique le background choisi.
+    Supprime l'arrière-plan d'une image uploadée.
     """
     from app.core.config import settings
     from pathlib import Path
     
-    # Valider le type
+    # Validate file type
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
     
-    # Sauvegarder
+    # Save uploaded file
     content = await file.read()
-    
     if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="Image trop grande (max 10MB)")
+        raise HTTPException(413, "Image trop grande (max 10MB)")
     
     filename = f"upload_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
-    
     storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
     uploads_path = storage_path / "uploads"
     uploads_path.mkdir(parents=True, exist_ok=True)
@@ -271,24 +160,115 @@ async def process_complete_upload(
     storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
     image_url = f"{storage_url}/uploads/{filename}"
     
-    # Traiter
+    # Process
     service = get_image_service()
     try:
-        result = await service.process_complete(
+        result = await service.remove_background(
             image_url=image_url,
-            background_type=background_type.value,
-            scale=scale,
-            position_x=position_x,
-            position_y=position_y,
-            add_shadow=add_shadow,
-            add_reflection=add_reflection,
+            hide_plate=hide_plate,
         )
-        return ApplyBackgroundResponse(**result)
+        return RemoveBgResponse(
+            id=result["id"],
+            status=result["status"],
+            original_url=result["original_url"],
+            processed_url=result["processed_url"],
+            processing_time=result["processing_time"],
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# === Utilitaires ===
+@router.post("/process", response_model=ProcessResponse)
+async def process_with_template(request: ProcessRequest):
+    """
+    Traite une image avec un template AutoBG (background custom).
+    
+    Le template sera créé automatiquement s'il n'existe pas.
+    
+    Args:
+    - image_url: URL de l'image de la voiture
+    - template_name: Nom unique du template
+    - background_url: URL de l'image de fond
+    - hide_plate: Masquer la plaque
+    """
+    service = get_image_service()
+    
+    try:
+        result = await service.process_with_template(
+            image_url=request.image_url,
+            template_name=request.template_name,
+            background_url=request.background_url,
+            hide_plate=request.hide_plate,
+        )
+        return ProcessResponse(
+            id=result["id"],
+            status=result["status"],
+            original_url=result["original_url"],
+            processed_url=result["processed_url"],
+            template_name=result["template_name"],
+            template_id=result["template_id"],
+            processing_time=result["processing_time"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/process/upload", response_model=ProcessResponse)
+async def process_upload_with_template(
+    file: UploadFile = File(...),
+    template_name: str = Form(...),
+    background_url: str = Form(...),
+    hide_plate: bool = Form(False),
+):
+    """
+    Traite une image uploadée avec un template.
+    """
+    from app.core.config import settings
+    from pathlib import Path
+    
+    # Validate file type
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(400, "Format non supporté. Utilisez JPEG, PNG ou WebP.")
+    
+    # Save uploaded file
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Image trop grande (max 10MB)")
+    
+    filename = f"upload_{uuid.uuid4()}.{file.filename.split('.')[-1]}"
+    storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
+    uploads_path = storage_path / "uploads"
+    uploads_path.mkdir(parents=True, exist_ok=True)
+    
+    file_path = uploads_path / filename
+    file_path.write_bytes(content)
+    
+    storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
+    image_url = f"{storage_url}/uploads/{filename}"
+    
+    # Process
+    service = get_image_service()
+    try:
+        result = await service.process_with_template(
+            image_url=image_url,
+            template_name=template_name,
+            background_url=background_url,
+            hide_plate=hide_plate,
+        )
+        return ProcessResponse(
+            id=result["id"],
+            status=result["status"],
+            original_url=result["original_url"],
+            processed_url=result["processed_url"],
+            template_name=result["template_name"],
+            template_id=result["template_id"],
+            processing_time=result["processing_time"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== UTILITIES ==========
 
 @router.post("/info")
 async def get_info(file: UploadFile = File(...)):
@@ -305,44 +285,6 @@ async def get_info(file: UploadFile = File(...)):
             "format": img.format or "unknown",
             "mode": img.mode,
             "size_bytes": len(image_bytes),
-            "has_alpha": img.mode in ("RGBA", "LA", "PA"),
         }
-    except ImportError:
-        raise HTTPException(status_code=503, detail="Pillow non installé")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Image invalide: {str(e)}")
-
-
-@router.post("/resize")
-async def resize_image(
-    file: UploadFile = File(...),
-    width: int = Query(..., ge=1, le=4096),
-    height: int = Query(..., ge=1, le=4096),
-    maintain_aspect: bool = Query(True),
-):
-    """Redimensionne une image."""
-    try:
-        from PIL import Image
-        
-        image_bytes = await file.read()
-        img = Image.open(io.BytesIO(image_bytes))
-        
-        if maintain_aspect:
-            img.thumbnail((width, height), Image.Resampling.LANCZOS)
-        else:
-            img = img.resize((width, height), Image.Resampling.LANCZOS)
-        
-        output = io.BytesIO()
-        fmt = img.format or "PNG"
-        img.save(output, format=fmt)
-        output.seek(0)
-        
-        return StreamingResponse(
-            output,
-            media_type=f"image/{fmt.lower()}",
-            headers={"Content-Disposition": f"attachment; filename=resized.{fmt.lower()}"}
-        )
-    except ImportError:
-        raise HTTPException(status_code=503, detail="Pillow non installé")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur: {str(e)}")
