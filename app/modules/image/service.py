@@ -191,17 +191,17 @@ class ImageService:
         if scale <= 0.1:
             # Smart auto-scaling based on car orientation
             if car_ratio > 1.3:
-                # Landscape car (side view) - fit to ~50% of width
-                scale = 0.50
+                # Landscape car (side view) - fit to ~45% of width
+                scale = 0.45
             elif car_ratio < 0.8:
-                # Portrait car (front/back view) - fit to ~35% of height
-                target_h = int(bg_h * 0.35)
+                # Portrait car (front/back view) - fit to ~30% of height
+                target_h = int(bg_h * 0.30)
                 ratio = target_h / car_h
                 target_w = int(car_w * ratio)
                 return car.resize((target_w, target_h), Image.Resampling.LANCZOS)
             else:
-                # Square-ish (3/4 view) - balanced at ~40%
-                scale = 0.40
+                # Square-ish (3/4 view) - balanced at ~38%
+                scale = 0.38
         
         # Width-based scaling
         target_w = int(bg_w * scale)
