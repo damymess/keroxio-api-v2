@@ -106,3 +106,57 @@ async def get_me(
 async def logout():
     """Logout (client should discard token)"""
     return {"message": "Logged out successfully"}
+
+
+@router.post("/admin/set-role")
+async def set_user_role(
+    email: str,
+    role: str,
+    admin_key: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Set user role (admin only) and create subscription if pro"""
+    from app.modules.subscription.models import Subscription
+    from datetime import datetime, timedelta
+    
+    # Simple admin key check
+    if admin_key != "keroxio-admin-2026":
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    
+    if role not in ["user", "pro", "admin"]:
+        raise HTTPException(status_code=400, detail="Invalid role")
+    
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.role = role
+    
+    # If pro, create a subscription
+    if role == "pro":
+        # Check for existing subscription
+        sub_result = await db.execute(
+            select(Subscription).where(Subscription.user_id == user.id)
+        )
+        existing_sub = sub_result.scalar_one_or_none()
+        
+        if existing_sub:
+            existing_sub.plan = "pro"
+            existing_sub.status = "active"
+            existing_sub.current_period_start = datetime.utcnow()
+            existing_sub.current_period_end = datetime.utcnow() + timedelta(days=365)
+        else:
+            subscription = Subscription(
+                user_id=user.id,
+                plan="pro",
+                status="active",
+                current_period_start=datetime.utcnow(),
+                current_period_end=datetime.utcnow() + timedelta(days=365)
+            )
+            db.add(subscription)
+    
+    await db.commit()
+    
+    return {"message": f"User {email} role set to {role}", "subscription": role == "pro"}
