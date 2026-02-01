@@ -154,6 +154,17 @@ class ImageService:
         # Fallback to storage
         return self.storage_path / "backgrounds" / f"{name}.jpg"
     
+    def _trim_transparent(self, img: Image.Image) -> Image.Image:
+        """Trim transparent pixels from image edges."""
+        if img.mode != "RGBA":
+            return img
+        
+        # Get bounding box of non-transparent pixels
+        bbox = img.getbbox()
+        if bbox:
+            return img.crop(bbox)
+        return img
+    
     def _resize_car(
         self,
         car: Image.Image,
@@ -161,6 +172,9 @@ class ImageService:
         scale: float,
     ) -> Image.Image:
         """Resize car to fit background while maintaining aspect ratio."""
+        # First trim transparent edges
+        car = self._trim_transparent(car)
+        
         bg_w, bg_h = bg_size
         car_w, car_h = car.size
         
@@ -193,9 +207,9 @@ class ImageService:
         car_w, car_h = car_size
         bg_w, bg_h = bg_size
         
-        # Vertical: bottom-aligned with minimal margin (car sits on "floor")
-        # Small negative margin to ensure car touches the ground
-        base_margin = int(bg_h * 0.02)  # 2% margin from bottom
+        # Vertical: bottom-aligned (car sits on "floor")
+        # No margin - car touches the very bottom
+        base_margin = 0  # Car sits at the bottom edge
         offset_pixels = int(bg_h * vertical_offset)
         y = bg_h - car_h - base_margin + offset_pixels
         
