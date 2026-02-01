@@ -171,27 +171,46 @@ class ImageService:
         bg_size: Tuple[int, int],
         scale: float,
     ) -> Image.Image:
-        """Resize car to fit background while maintaining aspect ratio.
+        """Resize car to fit background with smart auto-scaling.
         
-        Scale is relative to background:
-        - 0.5 = car takes 50% of background width (good for most cases)
-        - 0.6 = car takes 60% of background width
-        - 0.7 = car takes 70% of background width (large)
+        Adapts to car orientation:
+        - Landscape (side view): scale based on width
+        - Portrait (front/back view): scale based on height
+        
+        Scale 0.0 = auto (recommended)
+        Scale 0.3-0.7 = manual override
         """
         # First trim transparent edges
         car = self._trim_transparent(car)
         
         bg_w, bg_h = bg_size
         car_w, car_h = car.size
+        car_ratio = car_w / car_h
         
-        # Target width is scale * background width
+        # Auto-scale if scale is 0 or very small
+        if scale <= 0.1:
+            # Smart auto-scaling based on car orientation
+            if car_ratio > 1.3:
+                # Landscape car (side view) - fit to ~65% of width
+                scale = 0.65
+            elif car_ratio < 0.8:
+                # Portrait car (front/back view) - fit to ~50% of height
+                target_h = int(bg_h * 0.50)
+                ratio = target_h / car_h
+                target_w = int(car_w * ratio)
+                return car.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            else:
+                # Square-ish (3/4 view) - balanced
+                scale = 0.55
+        
+        # Width-based scaling
         target_w = int(bg_w * scale)
         ratio = target_w / car_w
         target_h = int(car_h * ratio)
         
-        # Make sure car doesn't exceed 60% of background height
-        if target_h > bg_h * 0.6:
-            target_h = int(bg_h * 0.6)
+        # Cap height at 70% of background
+        if target_h > bg_h * 0.70:
+            target_h = int(bg_h * 0.70)
             ratio = target_h / car_h
             target_w = int(car_w * ratio)
         
