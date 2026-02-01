@@ -1,6 +1,6 @@
 # 🚗 KEROXIO - Feuille de Route
 
-> Dernière mise à jour : 2026-02-01 14:10
+> Dernière mise à jour : 2026-02-01 17:05
 
 ---
 
@@ -130,11 +130,15 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 - [x] Endpoint `/image/process/upload` fonctionnel
 - [x] **Résultat : ~0.7s par image, 0.05€/image**
 
-### Phase 4 : INTÉGRATION DASHBOARD 🎨 À FAIRE
-- [ ] Intégrer le module image dans le dashboard
-- [ ] UI pour choisir le background
-- [ ] Preview avant validation
-- [ ] Option masquage de plaque
+### Phase 4 : INTÉGRATION DASHBOARD 🎨 ✅ TERMINÉ
+- [x] Refonte complète du dashboard selon vision produit
+- [x] Workflow 5 étapes (Plaque → Photos → Prix → Annonce → Publier)
+- [x] UI upload photos + sélection background
+- [x] Intégration estimation prix
+- [x] Génération annonce automatique
+- [x] Liens publication (LeBonCoin, LaCentrale, ParuVendu)
+- [ ] Option masquage de plaque (à faire)
+- [ ] Connexion réelle aux APIs (mock data actuellement)
 
 ### Phase 5 : WORKERS ASYNC 🔄
 - [ ] Redis Queue pour traitement background
@@ -176,6 +180,18 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ## 📝 Changelog
 
+### 2026-02-01 17:05 - Dashboard REFAIT 📱 ✅
+- ✅ Refonte complète selon vision produit originale
+- ✅ Suppression CRM (hors scope)
+- ✅ Workflow 5 étapes : Plaque → Photos → Prix → Annonce → Publier
+- ✅ Page /new avec wizard complet
+- ✅ Dashboard accueil avec véhicules récents + stats
+- ✅ Sidebar simplifiée (Accueil, Mes Véhicules, FAQ, Paramètres)
+- ✅ UI sélection backgrounds
+- ✅ Génération annonce auto (mock)
+- ✅ Liens publication externes
+- ⏳ Données mockées, connexion APIs à faire
+
 ### 2026-02-01 14:10 - Module Image FINALISÉ 🖼️ ✅
 - ✅ Smart auto-scaling basé sur orientation voiture
 - ✅ Scale final : **38%** pour vue 3/4
@@ -206,9 +222,11 @@ curl -X POST https://api.keroxio.fr/image/process/upload \
 
 ## 🎯 Prochaine Action
 
-**→ Phase 4 : Intégration Dashboard**
+**→ Phase 4.5 : Connexion APIs réelles**
 
-1. [ ] Créer UI dans le dashboard pour uploader photo
-2. [ ] Sélecteur de background avec preview
-3. [ ] Affichage résultat avant/après
-4. [ ] Download du résultat final
+1. [ ] Connecter étape 1 (Plaque) → API immat.keroxio.fr
+2. [ ] Connecter étape 2 (Photos) → API api.keroxio.fr/image/process
+3. [ ] Connecter étape 3 (Prix) → API pricing.keroxio.fr
+4. [ ] Connecter étape 4 (Annonce) → API annonce.keroxio.fr
+5. [ ] Masquage de plaque sur photos
+6. [ ] Stockage véhicules en base
