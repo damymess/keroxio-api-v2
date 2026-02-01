@@ -12,7 +12,7 @@ Endpoints:
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import io
@@ -159,7 +159,7 @@ async def remove_background(request: RemoveBgRequest):
         return {
             "id": request_id,
             "status": "completed",
-            "transparent_url": f"{service.storage_url}/processed/{filename}",
+            "transparent_url": f"{service.api_url}/image/files/{filename}",
             "processing_time": round(time.time() - start, 2),
         }
     except Exception as e:
@@ -234,7 +234,7 @@ async def composite(request: CompositeRequest):
         return {
             "id": request_id,
             "status": "completed",
-            "final_url": f"{service.storage_url}/processed/{filename}",
+            "final_url": f"{service.api_url}/image/files/{filename}",
             "background": request.background,
             "processing_time": round(time.time() - start, 2),
         }
@@ -316,3 +316,22 @@ async def get_info(file: UploadFile = File(...)):
         return service.get_image_info(image_bytes)
     except Exception as e:
         raise HTTPException(400, f"Image invalide: {str(e)}")
+
+
+@router.get("/files/{filename}")
+async def get_processed_file(filename: str):
+    """Récupère un fichier traité."""
+    service = get_image_service()
+    filepath = service.storage_path / "processed" / filename
+    
+    if not filepath.exists():
+        raise HTTPException(404, "File not found")
+    
+    # Determine media type
+    media_type = "image/png" if filename.endswith(".png") else "image/jpeg"
+    
+    return FileResponse(
+        path=filepath,
+        media_type=media_type,
+        filename=filename,
+    )

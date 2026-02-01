@@ -20,7 +20,8 @@ class ImageService:
     
     def __init__(self):
         self.storage_path = Path(getattr(settings, 'STORAGE_PATH', '/tmp/storage'))
-        self.storage_url = getattr(settings, 'STORAGE_URL', 'https://storage.keroxio.fr')
+        # Use API URL for serving processed files directly
+        self.api_url = "https://api.keroxio.fr"
         self.backgrounds_path = Path(__file__).parent / "backgrounds_images"
         
         # Create directories
@@ -243,8 +244,8 @@ class ImageService:
         return {
             "id": request_id,
             "status": "completed",
-            "transparent_url": f"{self.storage_url}/processed/{transparent_filename}",
-            "final_url": f"{self.storage_url}/processed/{final_filename}",
+            "transparent_url": f"{self.api_url}/image/files/{transparent_filename}",
+            "final_url": f"{self.api_url}/image/files/{final_filename}",
             "background": background_name,
             "processing_time": round(time.time() - start, 2),
         }
