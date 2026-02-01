@@ -233,68 +233,84 @@ class AutoBGService:
             else:
                 raise ValueError(f"Upload failed: {result.get('message')}")
     
-    async def get_image_status(self, image_id: int) -> Dict[str, Any]:
-        """Vérifie le status d'une image."""
+    async def get_image_status(self, batch_id: str) -> Dict[str, Any]:
+        """Vérifie le status d'un batch d'images."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{self.BASE_URL}/images/status",
-                headers=self._headers(),
-                data={"imageID": str(image_id)},
+                f"{self.BASE_URL}/images/imagesStatus",
+                headers={**self._headers(), "Content-Type": "application/json"},
+                json={"batchID": batch_id},
             )
             response.raise_for_status()
             return response.json()
     
-    async def get_image_base64(self, image_id: int) -> str:
+    async def get_image_base64(self, pic_id: int) -> str:
         """Récupère l'image traitée en base64."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
-                f"{self.BASE_URL}/images/base64",
+                f"{self.BASE_URL}/images/getImagesBase64",
                 headers=self._headers(),
-                params={"imageID": str(image_id)},
+                params={"picID": str(pic_id)},
             )
             response.raise_for_status()
             result = response.json()
             
-            if result.get("status"):
+            if isinstance(result, dict) and result.get("status"):
                 return result.get("data", {}).get("image", "")
+            elif isinstance(result, str):
+                return result
             else:
-                raise ValueError(f"Get image failed: {result.get('message')}")
+                raise ValueError(f"Get image failed: {result}")
     
-    async def get_image_raw(self, image_id: int) -> bytes:
+    async def get_image_raw(self, pic_id: int) -> bytes:
         """Récupère l'image traitée en bytes."""
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
-                f"{self.BASE_URL}/images/raw",
+                f"{self.BASE_URL}/images/getImagesRaw",
                 headers=self._headers(),
-                params={"imageID": str(image_id)},
+                params={"picID": str(pic_id)},
             )
             response.raise_for_status()
             return response.content
     
     async def wait_for_processing(
         self,
-        image_id: int,
+        batch_id: str,
         timeout: int = 120,
-        poll_interval: int = 2,
-    ) -> bool:
+        poll_interval: int = 3,
+    ) -> Dict[str, Any]:
         """
-        Attend que l'image soit traitée.
+        Attend que le batch soit traité.
         
         Returns:
-            True si traitement réussi, False sinon
+            Dict avec les infos des images traitées, ou None si échec
         """
         start = time.time()
         while time.time() - start < timeout:
-            status = await self.get_image_status(image_id)
-            if status.get("status"):
-                data = status.get("data", {})
-                state = data.get("status", "").lower()
-                if state in ["completed", "done", "processed"]:
-                    return True
-                elif state in ["failed", "error"]:
-                    return False
+            try:
+                status = await self.get_image_status(batch_id)
+                if status.get("status"):
+                    data = status.get("data", {})
+                    images = data.get("images", [])
+                    
+                    # Vérifier si toutes les images sont traitées
+                    if images:
+                        all_done = True
+                        for img in images:
+                            img_status = img.get("status", "").lower()
+                            if img_status in ["pending", "processing", "queued"]:
+                                all_done = False
+                                break
+                            elif img_status in ["failed", "error"]:
+                                return None
+                        
+                        if all_done:
+                            return data
+            except Exception as e:
+                print(f"Status check error: {e}")
+            
             await asyncio.sleep(poll_interval)
-        return False
+        return None
 
 
 class ImageService:
@@ -345,20 +361,28 @@ class ImageService:
             process_type="ai",
         )
         
-        # Get image ID from response
+        # Get batch ID from response (might be different)
+        autobg_batch_id = result.get("batchID") or batch_id
         images = result.get("images", [])
+        
         if not images:
             raise ValueError("No images in response")
         
-        image_id = images[0].get("id")
+        # Get pic ID from first image
+        pic_id = images[0].get("picID") or images[0].get("id")
         
-        # Wait for processing
-        success = await self.autobg.wait_for_processing(image_id)
-        if not success:
+        # Wait for processing using batch ID
+        status_data = await self.autobg.wait_for_processing(str(autobg_batch_id))
+        if not status_data:
             raise ValueError("Image processing failed or timed out")
         
+        # Get pic ID from status if available
+        status_images = status_data.get("images", [])
+        if status_images:
+            pic_id = status_images[0].get("picID") or status_images[0].get("id") or pic_id
+        
         # Get processed image
-        processed_bytes = await self.autobg.get_image_raw(image_id)
+        processed_bytes = await self.autobg.get_image_raw(pic_id)
         processed_url = await self._save_bytes(processed_bytes, "png")
         
         return {
@@ -366,8 +390,8 @@ class ImageService:
             "status": "completed",
             "original_url": image_url,
             "processed_url": processed_url,
-            "autobg_batch_id": batch_id,
-            "autobg_image_id": image_id,
+            "autobg_batch_id": autobg_batch_id,
+            "autobg_pic_id": pic_id,
             "processing_time": round(time.time() - start, 2),
         }
 
@@ -404,20 +428,27 @@ class ImageService:
             process_type="ai",
         )
         
-        # Get image ID
+        # Get batch ID and pic ID from response
+        autobg_batch_id = result.get("batchID") or batch_id
         images = result.get("images", [])
+        
         if not images:
             raise ValueError("No images in response")
         
-        image_id = images[0].get("id")
+        pic_id = images[0].get("picID") or images[0].get("id")
         
-        # Wait for processing
-        success = await self.autobg.wait_for_processing(image_id)
-        if not success:
+        # Wait for processing using batch ID
+        status_data = await self.autobg.wait_for_processing(str(autobg_batch_id))
+        if not status_data:
             raise ValueError("Image processing failed or timed out")
         
+        # Get pic ID from status if available
+        status_images = status_data.get("images", [])
+        if status_images:
+            pic_id = status_images[0].get("picID") or status_images[0].get("id") or pic_id
+        
         # Get processed image
-        processed_bytes = await self.autobg.get_image_raw(image_id)
+        processed_bytes = await self.autobg.get_image_raw(pic_id)
         processed_url = await self._save_bytes(processed_bytes, "jpg")
         
         return {
@@ -427,8 +458,8 @@ class ImageService:
             "processed_url": processed_url,
             "template_name": template_name,
             "template_id": template_id,
-            "autobg_batch_id": batch_id,
-            "autobg_image_id": image_id,
+            "autobg_batch_id": autobg_batch_id,
+            "autobg_pic_id": pic_id,
             "processing_time": round(time.time() - start, 2),
         }
 
